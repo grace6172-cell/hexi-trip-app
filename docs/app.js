@@ -158,6 +158,7 @@ async function addRow(sheet, fields, okMsg) {
   const temp = Object.assign({ ID: 'tmp-' + Date.now() }, fields);
   if (sheet === '待辦') Object.assign(temp, { 完成: false, 已刪除: false, 建立者: S.auth.user });
   if (sheet === '行程') Object.assign(temp, { 已刪除: false, 新增者: S.auth.user, 來源: 'app 新增' });
+  if (sheet === '購物') Object.assign(temp, { 已買: false, 已刪除: false, '按 ❤️ 的人': '', 來源: 'app 新增' });
   S.data[sheet].push(temp);
   render();
   if (okMsg) toast(okMsg);
@@ -269,6 +270,7 @@ function render() {
     </header>
     <main>${body}</main>
     ${S.tab === 'prep' && S.prepTab === 'todo' ? '<button class="fab" data-act="add-todo">＋ 新增待辦</button>' : ''}
+    ${S.tab === 'prep' && S.prepTab === 'shop' ? '<button class="fab" data-act="add-shop">＋ 新增想買的</button>' : ''}
     <nav class="tabbar">
       ${[['trip', '📅', '行程'], ['places', '📍', '地點'], ['book', '🎫', '預約'], ['prep', '🧳', '準備'], ['journal', '📝', '日誌']]
         .map(([k, ic, l]) => `<button class="tab${S.tab === k ? ' on' : ''}" data-act="tab" data-v="${k}"><span class="ic">${ic}</span>${l}</button>`).join('')}
@@ -544,9 +546,8 @@ function bookView() {
 /* ----- 準備 ----- */
 function prepView() {
   const seg = `<div class="seg" style="margin-top:6px">${[['todo', '待辦'], ['shop', '購物'], ['tools', '工具箱']].map(([k, l]) => `<button class="${S.prepTab === k ? 'on' : ''}" data-act="prep-tab" data-v="${k}">${l}</button>`).join('')}</div>`;
-  if (S.prepTab !== 'todo') {
-    return seg + `<div class="soon"><div class="big">🛠</div><p>${S.prepTab === 'shop' ? '購物清單' : '工具箱'}是第二批，出發前上線。</p><p class="small">現在可以先到 Google 試算表看。</p></div>`;
-  }
+  if (S.prepTab === 'shop') return seg + shopView();
+  if (S.prepTab === 'tools') return seg + toolsView();
   const all = rows('待辦').filter((r) => !truthy(r['已刪除']));
   const list = all.filter((r) => !S.onlyMine || r['負責人'] === S.auth.user)
     .sort((a, b) => Number(truthy(a['完成'])) - Number(truthy(b['完成'])));
@@ -564,6 +565,148 @@ function prepView() {
         ${r['負責人'] ? `<span class="owner${r['負責人'] === S.auth.user ? ' me' : ''}">${esc(r['負責人'])}</span>` : ''}
       </div>`;
     }).join('') || '<div class="empty">沒有待辦</div>'}</div>`;
+}
+
+/* ----- 準備 → 購物 ----- */
+const SHOP_FILTERS = [['all', '全部'], ['todo', '還沒買'], ['mine', '我想買的'], ['done', '已買']];
+function shopDateLabel(v) {
+  if (!v) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return `${md(v)} 順路`;
+  return `${v}可買`;
+}
+function shopView() {
+  const all = rows('購物').filter((r) => !truthy(r['已刪除']));
+  const f = S.shopFilter || 'all';
+  const list = all.filter((r) => {
+    if (f === 'todo') return !truthy(r['已買']);
+    if (f === 'done') return truthy(r['已買']);
+    if (f === 'mine') return hearts(r).includes(S.auth.user);
+    return true;
+  }).sort((a, b) => Number(truthy(a['已買'])) - Number(truthy(b['已買'])) || hearts(b).length - hearts(a).length);
+  const bought = all.filter((r) => truthy(r['已買'])).length;
+  return `
+    <div class="section-h"><h2>想買 ${all.length} 樣・已買 ${bought}</h2><span class="muted small">❤️ 越多越優先</span></div>
+    <div class="chips">${SHOP_FILTERS.map(([k, l]) => `<button class="chip${f === k ? ' on' : ''}" data-act="shop-filter" data-v="${k}">${l}</button>`).join('')}</div>
+    <div class="list">${list.map((r) => shopItemHtml(r)).join('') || '<div class="empty">這裡空空的</div>'}</div>`;
+}
+function shopItemHtml(r) {
+  const hs = hearts(r);
+  const mine = hs.includes(S.auth.user);
+  const done = truthy(r['已買']);
+  const p = placeById(r['地點 ID']);
+  const warn = /⚠|待查證/.test(String(r['查證狀態'] || ''));
+  return `<article class="card shop${done ? ' done' : ''}">
+    <div class="shop-top">
+      <button class="check${done ? ' on' : ''}" data-act="shop-bought" data-v="${esc(r.ID)}" aria-label="已買">${done ? '✓' : ''}</button>
+      <button class="body" data-act="shop-detail" data-v="${esc(r.ID)}">
+        <div class="t">${esc(r['商品'])}</div>
+        <div class="d">${esc(r['哪裡買'] || '')}${r['參考價'] ? `・${esc(r['參考價'])}` : ''}</div>
+      </button>
+      ${p ? `<a class="icon-btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener" aria-label="開 Google 地圖">🗺</a>` : ''}
+    </div>
+    <div class="shop-bottom">
+      <div class="badges">
+        ${r['順路日期'] ? `<span class="pill city">${esc(shopDateLabel(r['順路日期']))}</span>` : ''}
+        ${warn ? '<span class="pill mute">待查證</span>' : ''}
+        ${hs.length ? `<span class="muted small">${esc(hs.join('、'))}</span>` : ''}
+      </div>
+      <button class="heart${mine ? ' on' : ''}" data-act="heart" data-v="${esc(r.ID)}">❤️ ${hs.length}</button>
+    </div>
+  </article>`;
+}
+function shopDetailSheet(id) {
+  const r = rows('購物').find((x) => x.ID === id);
+  if (!r) return;
+  const p = placeById(r['地點 ID']);
+  openSheet(`
+    <h3>${esc(r['商品'])}</h3>
+    <div class="list small">
+      ${r['哪裡買'] ? `<div>🛍 ${esc(r['哪裡買'])}</div>` : ''}
+      ${p && p['地址'] ? `<div>📍 ${esc(p['地址'])}</div>` : ''}
+      ${r['參考價'] ? `<div>💶 ${esc(r['參考價'])}</div>` : ''}
+      ${r['說明'] ? `<div>${esc(r['說明'])}</div>` : ''}
+      ${r['順路日期'] ? `<div>📅 ${esc(shopDateLabel(r['順路日期']))}</div>` : ''}
+      ${hearts(r).length ? `<div>❤️ ${esc(hearts(r).join('、'))}</div>` : ''}
+      ${r['來源'] ? `<div class="muted">來源：${esc(r['來源'])}${r['查證狀態'] ? `｜${esc(r['查證狀態'])}` : ''}</div>` : ''}
+    </div>
+    <div class="acts">
+      <button class="btn danger" data-act="shop-remove" data-v="${esc(id)}">移除</button>
+      <div class="right">${p ? `<a class="btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 地圖</a>` : ''}<button class="btn" data-act="sheet-close">關閉</button></div>
+    </div>`);
+}
+function shopAddSheet() {
+  const days = rows('每日').filter((d) => d['城市代碼'] === 'bcn' || d['城市代碼'] === 'ams' || /巴塞|阿姆/.test(d['城市']));
+  const shops = rows('地點').filter((p) => p['類型'] === '購物');
+  openSheet(`
+    <h3>新增想買的</h3>
+    <div class="field"><label for="f-name">商品</label><input id="f-name" placeholder="例：橄欖油"></div>
+    <div class="field"><label for="f-where">哪裡買</label><input id="f-where" placeholder="例：超市、波蓋利亞市場"></div>
+    <div class="field"><label for="f-price">參考價</label><input id="f-price" placeholder="例：€5"></div>
+    <div class="field"><label for="f-place">對應地點（可不選）</label><select id="f-place"><option value="">不指定</option>${shops.map((p) => `<option value="${esc(p.ID)}">${esc(p['名稱'])}</option>`).join('')}</select></div>
+    <div class="field"><label for="f-day">哪天順路</label><select id="f-day"><option value="">不限</option><option>超市</option>${days.map((d) => `<option value="${d['日期']}">${md(d['日期'])}（週${esc(d['星期'])}）${esc(d['城市'])}</option>`).join('')}</select></div>
+    <div class="field"><label for="f-desc">說明</label><textarea id="f-desc" placeholder="口味、要買給誰…"></textarea></div>
+    <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="shop-save">新增</button></div></div>`,
+  () => $('#f-name').focus());
+}
+
+/* ----- 準備 → 工具箱 ----- */
+const TOOL_ORDER = ['緊急', '保險', '交通', '分帳', '翻譯'];
+const TOOL_ICON = { 緊急: '🆘', 保險: '🛡', 交通: '🚇', 分帳: '💶', 翻譯: '🗣' };
+const PHRASES = [
+  ['你好', 'Hola', 'Hallo'],
+  ['謝謝', 'Gracias', 'Dank je wel'],
+  ['請給我們菜單', 'La carta, por favor', 'Mag ik de menukaart?'],
+  ['你推薦什麼？', '¿Qué nos recomienda?', 'Wat raadt u aan?'],
+  ['我們有四個人', 'Somos cuatro personas', 'We zijn met z’n vieren'],
+  ['我有訂位，名字是＿＿', 'Tengo una reserva a nombre de ＿＿', 'Ik heb gereserveerd op naam van ＿＿'],
+  ['我對＿＿過敏', 'Soy alérgica a ＿＿', 'Ik ben allergisch voor ＿＿'],
+  ['不要加冰', 'Sin hielo, por favor', 'Zonder ijs, alstublieft'],
+  ['買單', 'La cuenta, por favor', 'Mag ik de rekening?'],
+  ['可以刷卡嗎？', '¿Puedo pagar con tarjeta?', 'Kan ik met kaart betalen?'],
+  ['這個多少錢？', '¿Cuánto cuesta?', 'Hoeveel kost dit?'],
+  ['廁所在哪裡？', '¿Dónde está el baño?', 'Waar is het toilet?'],
+  ['請幫我叫救護車', 'Llame a una ambulancia, por favor', 'Bel een ambulance, alstublieft'],
+];
+function phoneOf(text) {
+  const m = String(text || '').match(/\+?\d[\d\s-]{1,18}\d/);
+  return m ? m[0].replace(/[\s-]/g, '') : null;
+}
+function toolsView() {
+  const all = rows('工具箱');
+  const groups = TOOL_ORDER.map((g) => [g, all.filter((r) => r['類別'] === g)]).filter(([, l]) => l.length);
+  const html = groups.map(([g, list]) => {
+    let body;
+    if (g === '交通') {
+      body = list.map((r) => `<div class="card"><div class="t" style="font-weight:700">${esc(r['名稱'])}</div>
+        <ol class="steps">${String(r['內容'] || '').split('→').map((s) => `<li>${esc(s.trim())}</li>`).join('')}</ol></div>`).join('');
+    } else if (g === '翻譯') {
+      const links = list.filter((r) => r['連結']).map((r) => `<a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">🌐 ${esc(r['名稱'])}</a>`).join('');
+      body = `${links}<div class="muted small" style="margin:4px 2px">點一句放大，直接拿給店員看</div>
+        <div class="card phrases">${PHRASES.map((p, i) => `<button class="phrase" data-act="phrase" data-v="${i}"><span class="zh">${esc(p[0])}</span><span class="es">${esc(p[1])}</span><span class="nl">${esc(p[2])}</span></button>`).join('')}</div>`;
+    } else {
+      body = list.map((r) => {
+        const tel = g === '緊急' ? phoneOf(r['內容']) : null;
+        const mine = g === '保險' && r['名稱'] === S.auth.user;
+        const pending = /待/.test(String(r['內容'] || '')) || /待/.test(String(r['查證狀態'] || ''));
+        return `<div class="card tool${mine ? ' mine' : ''}">
+          <div style="flex:1;min-width:0"><div class="t">${esc(r['名稱'])}${mine ? '（你）' : ''}</div><div class="d${pending ? ' muted' : ''}">${esc(r['內容'] || '')}</div></div>
+          ${tel ? `<a class="btn primary" href="tel:${esc(tel)}">📞 ${esc(tel)}</a>` : ''}
+          ${r['連結'] ? `<a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">打開</a>` : ''}
+        </div>`;
+      }).join('');
+    }
+    return `<div class="section-h"><h2>${TOOL_ICON[g] || ''} ${esc(g)}</h2></div><div class="list">${body}</div>`;
+  }).join('');
+  return html + '<p class="muted small" style="margin:18px 2px">工具箱只能在 Google 試算表改，避免被誤刪。</p>';
+}
+function phraseSheet(i) {
+  const p = PHRASES[i];
+  if (!p) return;
+  openSheet(`
+    <div class="phrase-big"><div class="lang">Español</div><div class="big-es">${esc(p[1])}</div>
+    <div class="lang">Nederlands</div><div class="big-nl">${esc(p[2])}</div>
+    <div class="muted">${esc(p[0])}</div></div>
+    <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">關閉</button></div></div>`);
 }
 
 function journalView() {
@@ -777,6 +920,27 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'todo-remove': closeSheet(); updateRow('待辦', v, { 已刪除: true }, '已移除', { 已刪除: false }); break;
+    case 'shop-filter': S.shopFilter = v; render(); break;
+    case 'shop-bought': {
+      const r = rows('購物').find((x) => x.ID === v);
+      const nv = !truthy(r['已買']);
+      updateRow('購物', v, { 已買: nv }, nv ? '買到了 🛍' : '改回還沒買');
+      break;
+    }
+    case 'shop-detail': shopDetailSheet(v); break;
+    case 'shop-remove': closeSheet(); updateRow('購物', v, { 已刪除: true }, '已移除', { 已刪除: false }); break;
+    case 'add-shop': shopAddSheet(); break;
+    case 'shop-save': {
+      const fields = {
+        商品: $('#f-name').value.trim(), 哪裡買: $('#f-where').value.trim(), 參考價: $('#f-price').value.trim(),
+        '地點 ID': $('#f-place').value, 順路日期: $('#f-day').value, 說明: $('#f-desc').value.trim(),
+      };
+      if (!fields['商品']) { $('#f-name').focus(); break; }
+      closeSheet();
+      addRow('購物', fields, '新增好了，記得按 ❤️');
+      break;
+    }
+    case 'phrase': phraseSheet(Number(v)); break;
     case 'undo': if (toast.undo) { const u = toast.undo; toast.undo = null; $('#toast-root').innerHTML = ''; u(); } break;
     default: break;
   }

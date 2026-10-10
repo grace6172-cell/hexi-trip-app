@@ -202,6 +202,32 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
   border: 0; background: var(--city); color: #fff; border-radius: 999px; padding: 12px 18px; min-height: 48px;
   font-weight: 700; box-shadow: var(--shadow);
 }
+/* 購物 */
+.shop { display: flex; flex-direction: column; gap: 8px; }
+.shop-top { display: flex; gap: 12px; align-items: flex-start; }
+.shop-top .body { flex: 1; min-width: 0; border: 0; background: none; text-align: left; padding: 0; }
+.shop-top .t { font-weight: 700; font-size: 15px; }
+.shop-top .d { font-size: 13px; color: var(--sub); }
+.shop-bottom { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-left: 40px; }
+.shop.done .t { text-decoration: line-through; color: var(--sub); }
+
+/* 工具箱 */
+.tool { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.tool .t { font-weight: 700; font-size: 15px; }
+.tool .d { font-size: 14px; }
+.tool.mine { border-color: var(--city); }
+.steps { margin: 8px 0 0; padding-left: 22px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.phrases { padding: 4px 12px; }
+.phrase { display: grid; grid-template-columns: 1fr; gap: 1px; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); background: none; padding: 10px 0; }
+.phrase:first-child { border-top: 0; }
+.phrase .zh { font-size: 13px; color: var(--sub); }
+.phrase .es { font-weight: 700; font-size: 15px; color: var(--bcn); }
+.phrase .nl { font-size: 14px; color: var(--ams); }
+.phrase-big { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 4px; }
+.phrase-big .lang { font-size: 12px; color: var(--sub); letter-spacing: .08em; margin-top: 8px; }
+.phrase-big .big-es { font-size: 30px; font-weight: 700; line-height: 1.3; color: var(--bcn); }
+.phrase-big .big-nl { font-size: 26px; font-weight: 700; line-height: 1.3; color: var(--ams); }
+
 .soon { text-align: center; padding: 48px 16px; color: var(--sub); }
 .soon .big { font-size: 40px; }
 
