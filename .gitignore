@@ -1,2 +1,5 @@
 # 示範資料含真實行程與個人資訊，只留在本機
 docs/demo-data.json
+
+# 本機產生圖示用的工具頁
+docs/icon-maker.html
