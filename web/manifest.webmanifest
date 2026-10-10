@@ -1,0 +1,16 @@
+{
+  "name": "瘋女紙荷西行",
+  "short_name": "荷西行",
+  "description": "阿姆斯特丹 × 巴塞隆納 2026：行程、口袋名單、預約、準備",
+  "lang": "zh-Hant-TW",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FAF7F2",
+  "theme_color": "#C8642E",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
