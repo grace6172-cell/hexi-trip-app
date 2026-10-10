@@ -81,16 +81,50 @@ function doPost(e) {
     const lock = LockService.getDocumentLock();
     lock.waitLock(10000);
     try {
+      let row;
       switch (body.action) {
-        case 'add':    return { ok: true, row: addRow_(body.sheet, body.fields || {}, user) };
-        case 'update': return { ok: true, row: updateRow_(body.sheet, body.id, body.fields || {}, user) };
-        case 'heart':  return { ok: true, row: toggleHeart_(body.id, user) };
+        case 'add':    row = addRow_(body.sheet, body.fields || {}, user); break;
+        case 'update': row = updateRow_(body.sheet, body.id, body.fields || {}, user); break;
+        case 'heart':  row = toggleHeart_(body.id, user); break;
         default: throw new Error('不支援的動作：' + body.action);
       }
+      logChange_(user, body, row);
+      return { ok: true, row };
     } finally {
       lock.releaseLock();
     }
   });
+}
+
+/* ---------------- 異動紀錄 ----------------
+ * 試算表的版本記錄只會顯示部署者（Grace），
+ * 所以每次從 app 寫入都另外記一筆：誰、什麼時候、改了哪裡。 */
+const LOG_SHEET = '異動紀錄';
+const ACTION_NAME = { add: '新增', update: '修改', heart: '按 ❤️' };
+
+function logChange_(user, body, row) {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    let sh = ss.getSheetByName(LOG_SHEET);
+    if (!sh) {
+      sh = ss.insertSheet(LOG_SHEET);
+      sh.appendRow(['時間', '誰', '動作', '分頁', 'ID', '項目', '內容']);
+      sh.setFrozenRows(1);
+    }
+    const sheet = body.action === 'heart' ? '購物' : body.sheet;
+    const name = row ? (row['名稱'] || row['項目'] || row['商品'] || row['內容'] || '') : '';
+    const detail = body.action === 'heart'
+      ? (row && row[HEART_FIELD]) || '（沒人按）'
+      : Object.keys(body.fields || {}).map((k) => k + '：' + body.fields[k]).join('；');
+    sh.appendRow([
+      Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd HH:mm:ss'),
+      user, ACTION_NAME[body.action] || body.action, sheet,
+      (row && row.ID) || body.id || '', String(name).slice(0, 100), String(detail).slice(0, 500),
+    ]);
+  } catch (err) {
+    // 記錄失敗不能讓使用者的修改失敗
+    console.error('logChange_ failed: ' + err);
+  }
 }
 
 function handle_(fn) {

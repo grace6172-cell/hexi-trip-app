@@ -123,14 +123,50 @@ async function fetchAll() {
 }
 async function post(body) {
   if (S.auth.demo) return { ok: true, row: null };
-  const r = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(Object.assign({}, body, { key: S.auth.key, user: S.auth.user })),
-  });
-  const j = await r.json();
-  if (!j.ok) throw new Error(j.error || '儲存失敗');
-  return j;
+  S.pending = (S.pending || 0) + 1;
+  S.lastWrite = Date.now();
+  try {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({}, body, { key: S.auth.key, user: S.auth.user })),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '儲存失敗');
+    return j;
+  } finally {
+    S.pending -= 1;
+    S.lastWrite = Date.now();
+  }
+}
+
+/**
+ * 從試算表重新抓資料。抓的期間如果有人在 app 裡改了東西，
+ * 這份資料就是舊的，不能蓋掉畫面，等寫入完成後再抓一次。
+ */
+async function syncData(opts = {}) {
+  if (!S.auth || S.auth.demo) return;
+  if (S.syncing) { S.syncAgain = true; return; }
+  S.syncing = true;
+  const started = Date.now();
+  try {
+    const data = await fetchAll();
+    if ((S.pending || 0) > 0 || (S.lastWrite || 0) >= started) {
+      S.syncAgain = true;
+    } else {
+      S.data = data;
+      S.syncedAt = Date.now();
+      store.set('cache', { at: S.syncedAt, demo: false, data });
+      if (!$('#sheet-root').innerHTML) render(); else S.renderAfterSheet = true;
+      if (opts.toast) toast('資料更新好了');
+    }
+  } catch (err) {
+    if (opts.toast) toast('更新失敗：' + err.message);
+  } finally {
+    S.syncing = false;
+    render.spin(false);
+    if (S.syncAgain) { S.syncAgain = false; setTimeout(() => syncData(), 1500); }
+  }
 }
 
 const rows = (sheet) => (S.data && S.data[sheet]) || [];
@@ -171,6 +207,7 @@ async function addRow(sheet, fields, okMsg) {
     S.data[sheet] = S.data[sheet].filter((r) => r !== temp);
     render();
     toast('沒存到：' + err.message);
+    syncData();
   }
 }
 async function toggleHeart(id) {
@@ -263,10 +300,18 @@ function render() {
   else if (S.tab === 'prep') body = prepView();
   else body = journalView();
 
+  // 重畫前記住每一排橫向捲動的位置，重畫後放回去（不然點完會跳回第一格）
+  const scrolls = {};
+  app.querySelectorAll('.chips[data-sk]').forEach((el) => { scrolls[el.dataset.sk] = el.scrollLeft; });
+
   app.innerHTML = `
+    <div id="ptr" class="ptr" aria-hidden="true">↓ 放開就重新整理</div>
     <header class="topbar">
-      <h1>瘋女紙荷西行${S.auth.demo ? '<span class="demo-tag">示範資料</span>' : ''}</h1>
-      <button class="who" data-act="settings" aria-label="設定">👤 ${esc(S.auth.user)}</button>
+      <div class="brand"><img src="icon-192.png" alt="" width="34" height="34"><h1>瘋女紙荷西行</h1>${S.auth.demo ? '<span class="demo-tag">示範</span>' : ''}</div>
+      <div class="top-acts">
+        <button class="icon-btn" id="sync-btn" data-act="refresh" aria-label="重新整理資料">🔄</button>
+        <button class="who" data-act="settings" aria-label="設定">👤 ${esc(S.auth.user)}</button>
+      </div>
     </header>
     <main>${body}</main>
     ${S.tab === 'prep' && S.prepTab === 'todo' ? '<button class="fab" data-act="add-todo">＋ 新增待辦</button>' : ''}
@@ -276,12 +321,15 @@ function render() {
         .map(([k, ic, l]) => `<button class="tab${S.tab === k ? ' on' : ''}" data-act="tab" data-v="${k}"><span class="ic">${ic}</span>${l}</button>`).join('')}
     </nav>`;
   paintTiles();
-  if (S.tab === 'trip') {
-    const chip = $('.date-chip.on');
-    if (chip && !render.scrolled) { chip.scrollIntoView({ inline: 'center', block: 'nearest' }); render.scrolled = true; }
-    if (info.wxCity) loadWeather(info.wxCity);
-  }
+  app.querySelectorAll('.chips[data-sk]').forEach((el) => {
+    if (el.dataset.sk in scrolls) { el.scrollLeft = scrolls[el.dataset.sk]; return; }
+    const on = el.querySelector('.chip.on');
+    if (on) el.scrollLeft = on.offsetLeft - (el.clientWidth - on.offsetWidth) / 2;
+  });
+  render.spin(S.syncing);
+  if (S.tab === 'trip' && info.wxCity) loadWeather(info.wxCity);
 }
+render.spin = (on) => { const b = $('#sync-btn'); if (b) b.classList.toggle('spin', !!on); };
 
 function pickDefaultDate() {
   const days = rows('每日').map((r) => r['日期']);
@@ -352,7 +400,7 @@ function tripView(info) {
     <div class="card">${buys.map((b) => buyRowHtml(b)).join('')}</div>` : '';
 
   return `
-    <div class="dates"><div class="chips">${dateChips}</div></div>
+    <div class="dates"><div class="chips" data-sk="dates">${dateChips}</div></div>
     <section class="banner">${band}<div class="banner-body">
       <div class="row1"><span class="city">${esc(d['城市'] || '')}</span><span class="weather num">${wx}</span></div>
       <div class="summary">${esc(d['Summary'] || '')}</div>
@@ -483,8 +531,8 @@ function placesView() {
     <div class="filters">
       <div class="seg">${['巴塞隆納', '阿姆斯特丹'].map((c) => `<button class="${f.city === c ? 'on' : ''}" data-act="pf-city" data-v="${c}">${c}</button>`).join('')}</div>
       <input class="search" id="pq" type="search" placeholder="搜尋店名、特色、區域" value="${esc(f.q)}">
-      <div class="chips">${['全部', ...TYPES].filter((t) => t === '全部' || counts[t]).map((t) => `<button class="chip${f.type === t ? ' on' : ''}" data-act="pf-type" data-v="${t}">${t}${t !== '全部' ? ` ${counts[t]}` : ''}</button>`).join('')}</div>
-      ${regions.length > 2 ? `<div class="chips">${regions.map((r) => `<button class="chip${f.region === r ? ' on' : ''}" data-act="pf-region" data-v="${esc(r)}">${esc(r)}</button>`).join('')}</div>` : ''}
+      <div class="chips" data-sk="ptype">${['全部', ...TYPES].filter((t) => t === '全部' || counts[t]).map((t) => `<button class="chip${f.type === t ? ' on' : ''}" data-act="pf-type" data-v="${t}">${t}${t !== '全部' ? ` ${counts[t]}` : ''}</button>`).join('')}</div>
+      ${regions.length > 2 ? `<div class="chips" data-sk="pregion">${regions.map((r) => `<button class="chip${f.region === r ? ' on' : ''}" data-act="pf-region" data-v="${esc(r)}">${esc(r)}</button>`).join('')}</div>` : ''}
     </div>
     <div class="muted small" style="margin:2px 2px 10px">當地現在 ${String(Math.floor(now.min / 60)).padStart(2, '0')}:${String(now.min % 60).padStart(2, '0')}（週${WD_NAME[now.wd]}），燈號照這個時間算</div>
     <div class="list">${list.length ? list.map((p) => placeHtml(p, now)).join('') : '<div class="empty">沒有符合的地點</div>'}</div>`;
@@ -514,9 +562,18 @@ function placeHtml(p, now) {
 }
 
 /* ----- 預約 ----- */
+// 試算表欄位名稱不變（票在誰手上／票券位置），畫面上改叫「小幫手」「定位資訊」
+const BOOK_FILTERS = [['all', '全部'], ['todo', '未訂'], ['mine', '我是小幫手'], ['nobody', '還沒有小幫手']];
 function bookView() {
-  const list = rows('預約').slice().sort((a, b) => String(a['日期']).localeCompare(String(b['日期'])) || String(a['時間'] || '99').localeCompare(String(b['時間'] || '99')));
-  const count = (s) => list.filter((r) => r['狀態'] === s).length;
+  const all = rows('預約').slice().sort((a, b) => String(a['日期']).localeCompare(String(b['日期'])) || String(a['時間'] || '99').localeCompare(String(b['時間'] || '99')));
+  const count = (s) => all.filter((r) => r['狀態'] === s).length;
+  const f = S.bookFilter || 'all';
+  const list = all.filter((r) => {
+    if (f === 'todo') return r['狀態'] === '未訂';
+    if (f === 'mine') return r['票在誰手上'] === S.auth.user;
+    if (f === 'nobody') return !r['票在誰手上'] && r['狀態'] !== '已取消';
+    return true;
+  });
   let lastDate = '';
   const html = list.map((r) => {
     let head = '';
@@ -526,7 +583,8 @@ function bookView() {
       <div style="display:flex;gap:10px;align-items:flex-start">
         <div style="flex:1;min-width:0">
           <div class="bk-name">${r['時間'] ? `<span class="num" style="color:var(--city)">${esc(r['時間'])}</span> ` : ''}${esc(r['項目'])}</div>
-          <div class="bk-meta">${r['票在誰手上'] ? `🎟 ${esc(r['票在誰手上'])}` : '🎟 還沒指定誰拿票'}${r['票券位置'] ? `・${esc(r['票券位置'])}` : ''}</div>
+          <div class="bk-meta">${r['票在誰手上'] ? `🙋 小幫手：${esc(r['票在誰手上'])}` : '🙋 小幫手哪位？'}</div>
+          ${r['票券位置'] ? `<div class="bk-meta">📎 定位資訊：${esc(r['票券位置'])}</div>` : ''}
           ${r['備註'] ? `<div class="bk-meta">${esc(r['備註'])}</div>` : ''}
           ${r['更新者'] ? `<div class="bk-meta">最後由 ${esc(r['更新者'])} 更新</div>` : ''}
         </div>
@@ -536,11 +594,11 @@ function bookView() {
     </article>`;
   }).join('');
   return `
-    <div class="section-h"><h2>預約</h2></div>
-    <div class="summary-strip">
-      <span class="pill bad">未訂 ${count('未訂')}</span><span class="pill ok">已訂 ${count('已訂')}</span>${count('已取消') ? `<span class="pill mute">已取消 ${count('已取消')}</span>` : ''}
+    <div class="section-h"><h2>預約</h2>
+      <div class="summary-strip"><span class="pill bad">未訂 ${count('未訂')}</span><span class="pill ok">已訂 ${count('已訂')}</span>${count('已取消') ? `<span class="pill mute">已取消 ${count('已取消')}</span>` : ''}</div>
     </div>
-    ${html || '<div class="empty">還沒有預約</div>'}`;
+    <div class="chips" data-sk="bookf">${BOOK_FILTERS.map(([k, l]) => `<button class="chip${f === k ? ' on' : ''}" data-act="book-filter" data-v="${k}">${l}</button>`).join('')}</div>
+    ${html || `<div class="empty">${f === 'mine' ? '你還沒認領任何預約，點 ✏️ 選自己當小幫手' : '這裡空空的'}</div>`}`;
 }
 
 /* ----- 準備 ----- */
@@ -562,7 +620,7 @@ function prepView() {
         <button class="body" data-act="edit-todo" data-v="${esc(r.ID)}">
           <div class="t">${esc(r['項目'])}</div>${r['說明'] ? `<div class="d">${esc(r['說明'])}</div>` : ''}
         </button>
-        ${r['負責人'] ? `<span class="owner${r['負責人'] === S.auth.user ? ' me' : ''}">${esc(r['負責人'])}</span>` : ''}
+        <button class="owner${r['負責人'] === S.auth.user ? ' me' : ''}" data-act="owner" data-v="${esc(r.ID)}" aria-label="換負責人">${esc(r['負責人'] || '大家')} ▾</button>
       </div>`;
     }).join('') || '<div class="empty">沒有待辦</div>'}</div>`;
 }
@@ -586,7 +644,7 @@ function shopView() {
   const bought = all.filter((r) => truthy(r['已買'])).length;
   return `
     <div class="section-h"><h2>想買 ${all.length} 樣・已買 ${bought}</h2><span class="muted small">❤️ 越多越優先</span></div>
-    <div class="chips">${SHOP_FILTERS.map(([k, l]) => `<button class="chip${f === k ? ' on' : ''}" data-act="shop-filter" data-v="${k}">${l}</button>`).join('')}</div>
+    <div class="chips" data-sk="shopf">${SHOP_FILTERS.map(([k, l]) => `<button class="chip${f === k ? ' on' : ''}" data-act="shop-filter" data-v="${k}">${l}</button>`).join('')}</div>
     <div class="list">${list.map((r) => shopItemHtml(r)).join('') || '<div class="empty">這裡空空的</div>'}</div>`;
 }
 function shopItemHtml(r) {
@@ -739,8 +797,10 @@ function editBookSheet(id) {
   if (!r) return;
   openSheet(`
     <h3>${esc(r['項目'])}</h3>
-    <div class="field"><label for="f-holder">票在誰手上</label><select id="f-holder"><option value="">還沒指定</option>${USERS.map((u) => `<option${r['票在誰手上'] === u ? ' selected' : ''}>${u}</option>`).join('')}</select></div>
-    <div class="field"><label for="f-where">票券位置</label><input id="f-where" value="${esc(r['票券位置'] || '')}" placeholder="例：朱的信箱，主旨 Sagrada Familia"></div>
+    <div class="field"><label>小幫手（負責這筆預約、拿票的人）</label>
+      <div class="who-pick">${['', ...USERS].map((u) => `<button type="button" class="chip${(r['票在誰手上'] || '') === u ? ' on' : ''}" data-act="pick" data-target="f-holder" data-v="${esc(u)}">${u || '還沒有'}</button>`).join('')}</div>
+      <input type="hidden" id="f-holder" value="${esc(r['票在誰手上'] || '')}"></div>
+    <div class="field"><label for="f-where">定位資訊</label><input id="f-where" value="${esc(r['票券位置'] || '')}" placeholder="例：訂位代號 ABC123、朱的信箱主旨 Sagrada Familia"></div>
     <div class="field"><label for="f-note">備註</label><textarea id="f-note">${esc(r['備註'] || '')}</textarea></div>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="book-save" data-v="${esc(id)}">儲存</button></div></div>`);
 }
@@ -750,11 +810,22 @@ function todoSheet(id) {
     <h3>${id ? '編輯待辦' : '新增待辦'}</h3>
     <div class="field"><label for="f-title">要做什麼</label><input id="f-title" value="${esc(r['項目'] || '')}" placeholder="例：買 eSIM"></div>
     <div class="field"><label for="f-desc">說明</label><textarea id="f-desc">${esc(r['說明'] || '')}</textarea></div>
-    <div class="field"><label for="f-owner">負責人</label><select id="f-owner"><option value="">大家</option>${USERS.map((u) => `<option${(r['負責人'] || (id ? '' : S.auth.user)) === u ? ' selected' : ''}>${u}</option>`).join('')}</select></div>
+    <div class="field"><label>負責人</label>
+      <div class="who-pick">${['', ...USERS].map((u) => `<button type="button" class="chip${(id ? (r['負責人'] || '') : S.auth.user) === u ? ' on' : ''}" data-act="pick" data-target="f-owner" data-v="${esc(u)}">${u || '大家'}</button>`).join('')}</div>
+      <input type="hidden" id="f-owner" value="${esc(id ? (r['負責人'] || '') : S.auth.user)}"></div>
     <div class="acts">
       ${id ? `<button class="btn danger" data-act="todo-remove" data-v="${esc(id)}">移除</button>` : ''}
       <div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="todo-save" data-v="${esc(id || '')}">儲存</button></div>
     </div>`, () => { const t = $('#f-title'); if (t && !id) t.focus(); });
+}
+/** 待辦卡片上直接點負責人就能換人 */
+function ownerSheet(id) {
+  const r = rows('待辦').find((x) => x.ID === id);
+  if (!r) return;
+  openSheet(`
+    <h3>誰負責「${esc(r['項目'])}」？</h3>
+    <div class="who-grid">${['', ...USERS].map((u) => `<button class="${(r['負責人'] || '') === u ? 'on' : ''}" data-act="owner-set" data-id="${esc(id)}" data-v="${esc(u)}">${u || '大家'}</button>`).join('')}</div>
+    <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button></div></div>`);
 }
 function settingsSheet() {
   openSheet(`
@@ -821,11 +892,14 @@ function paintTiles() {
 
 /* ---------------- 事件 ---------------- */
 async function loadData() {
+  // 已經有快取：先顯示快取，背景同步（同步期間的編輯不會被蓋掉）
+  if (S.data && !S.auth.demo) { S.syncing = false; render(); render.spin(true); syncData(); return; }
   S.error = '';
   render();
   try {
     S.data = await fetchAll();
-    store.set('cache', { at: Date.now(), demo: !!S.auth.demo, data: S.data });
+    S.syncedAt = Date.now();
+    store.set('cache', { at: S.syncedAt, demo: !!S.auth.demo, data: S.data });
   } catch (err) {
     S.error = '讀不到資料：' + err.message;
   }
@@ -836,7 +910,10 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const act = el.dataset.act, v = el.dataset.v;
-  if (act === 'sheet-close') { if (e.target === el || el.tagName === 'BUTTON') closeSheet(); return; }
+  if (act === 'sheet-close') {
+    if (e.target === el || el.tagName === 'BUTTON') { closeSheet(); if (S.renderAfterSheet) { S.renderAfterSheet = false; render(); } }
+    return;
+  }
 
   switch (act) {
     case 'login-user': S.loginUser = v; render(); break;
@@ -858,9 +935,14 @@ document.addEventListener('click', async (e) => {
     case 'demo': S.auth = { user: S.loginUser || '朱', key: null, demo: true }; loadData(); break;
     case 'logout': store.del('auth'); store.del('cache'); S.auth = null; S.data = null; closeSheet(); render(); break;
     case 'retry': loadData(); break;
-    case 'refresh': closeSheet(); await loadData(); toast('資料更新好了'); break;
+    case 'refresh':
+      closeSheet();
+      if (S.auth.demo) { toast('示範資料不用更新'); break; }
+      render.spin(true);
+      syncData({ toast: true });
+      break;
     case 'settings': settingsSheet(); break;
-    case 'tab': S.tab = v; store.set('tab', v); render.scrolled = false; closeSheet(); render(); window.scrollTo(0, 0); break;
+    case 'tab': S.tab = v; store.set('tab', v); closeSheet(); render(); window.scrollTo(0, 0); break;
     case 'date': S.date = v; render(); break;
     case 'reco-more': S.recoOpen[v] = !S.recoOpen[v]; render(); break;
     case 'add-reco': {
@@ -895,6 +977,19 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'edit-book': editBookSheet(v); break;
+    case 'book-filter': S.bookFilter = v; render(); break;
+    case 'pick': {
+      const inp = document.getElementById(el.dataset.target);
+      if (inp) inp.value = v;
+      el.parentElement.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === el));
+      break;
+    }
+    case 'owner': ownerSheet(v); break;
+    case 'owner-set': {
+      closeSheet();
+      updateRow('待辦', el.dataset.id, { 負責人: v }, v ? `改由 ${v} 負責` : '改成大家一起');
+      break;
+    }
     case 'book-save':
       updateRow('預約', v, { 票在誰手上: $('#f-holder').value, 票券位置: $('#f-where').value, 備註: $('#f-note').value }, '存好了');
       closeSheet();
@@ -959,11 +1054,35 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'pass') { const b = $('[data-act="login"]'); if (b) b.click(); }
   if (e.key === 'Escape') closeSheet();
 });
+// 自動同步：回到 app 時、以及開著的時候每 45 秒抓一次別人改的東西
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && S.auth && S.data && !S.auth.demo) {
-    fetchAll().then((d) => { S.data = d; render(); }).catch(() => {});
-  }
+  if (document.visibilityState === 'visible' && S.auth && S.data) syncData();
 });
+setInterval(() => {
+  if (document.visibilityState === 'visible' && S.auth && S.data && !$('#sheet-root').innerHTML) syncData();
+}, 45000);
+
+// 下拉重新整理：在頁面最上方往下拉超過 80px 放開
+(function pullToRefresh() {
+  let y0 = null, pulled = 0;
+  const ind = () => $('#ptr');
+  document.addEventListener('touchstart', (e) => {
+    y0 = (window.scrollY <= 0 && !$('#sheet-root').innerHTML && S.data) ? e.touches[0].clientY : null;
+    pulled = 0;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (y0 == null) return;
+    pulled = e.touches[0].clientY - y0;
+    const el = ind();
+    if (el) { el.classList.toggle('show', pulled > 30); el.classList.toggle('ready', pulled > 80); }
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    const el = ind();
+    if (el) el.classList.remove('show', 'ready');
+    if (y0 != null && pulled > 80) { render.spin(true); syncData({ toast: true }); }
+    y0 = null; pulled = 0;
+  });
+})();
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(paintTiles, 150); });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintTiles);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(paintTiles);

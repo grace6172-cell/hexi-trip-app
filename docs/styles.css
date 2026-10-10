@@ -37,12 +37,29 @@ a { color: inherit; }
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 8px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
-.topbar h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: .02em; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand img { width: 34px; height: 34px; border-radius: 9px; flex: none; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.topbar h1 {
+  font-size: 21px; margin: 0; font-weight: 700; letter-spacing: .04em; white-space: nowrap; color: var(--ink);
+}
+.top-acts { display: flex; align-items: center; gap: 8px; flex: none; }
+.top-acts .icon-btn { width: 36px; height: 36px; border-radius: 999px; font-size: 15px; }
+.icon-btn.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ptr {
+  position: fixed; top: calc(env(safe-area-inset-top, 0px) + 6px); left: 50%; transform: translate(-50%, -60px); z-index: 60;
+  background: var(--ink); color: var(--bg); font-size: 13px; padding: 6px 14px; border-radius: 999px; transition: transform .15s; pointer-events: none;
+}
+.ptr.show { transform: translate(-50%, 0); }
+.ptr.ready { background: var(--city); color: #fff; }
+.who-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+button.owner { background: var(--card); min-height: 32px; color: var(--sub); flex: none; }
+button.owner.me { color: var(--city); }
 .topbar .who {
   display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--card);
   border-radius: 999px; padding: 4px 12px; font-size: 14px; min-height: 36px;
 }
-.demo-tag { font-size: 11px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 0 6px; margin-left: 6px; vertical-align: middle; }
+.demo-tag { white-space: nowrap; font-size: 11px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 0 6px; margin-left: 6px; vertical-align: middle; }
 main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width: 640px; margin: 0 auto; }
 
 .tabbar {
@@ -117,7 +134,7 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
 .error { color: var(--bad); font-size: 14px; }
 
 /* ---------- 行程 ---------- */
-.dates { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 54px); z-index: 15; background: var(--bg); padding-bottom: 6px; }
+.dates { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 58px); z-index: 15; background: var(--bg); padding-bottom: 6px; }
 .date-chip { display: flex; flex-direction: column; align-items: center; line-height: 1.25; padding: 6px 12px; border-radius: 12px; }
 .date-chip .d { font-weight: 700; font-size: 15px; }
 .date-chip .w { font-size: 11px; color: var(--sub); }
@@ -162,7 +179,7 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
 
 /* ---------- 地點 ---------- */
 .search { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 10px 12px; min-height: 44px; }
-.filters { display: flex; flex-direction: column; gap: 8px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 54px); background: var(--bg); z-index: 15; padding-bottom: 8px; }
+.filters { display: flex; flex-direction: column; gap: 8px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 58px); background: var(--bg); z-index: 15; padding-bottom: 8px; }
 .place { display: flex; flex-direction: column; gap: 6px; }
 .place-top { display: flex; gap: 10px; align-items: flex-start; }
 .place-top .nm { flex: 1; min-width: 0; font-weight: 700; font-size: 16px; }
