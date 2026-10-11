@@ -33,7 +33,7 @@ const RULES = {
   '預約': {
     idPrefix: 'R',
     add: [],
-    update: ['狀態', '票在誰手上', '票券位置', '備註'],
+    update: ['時間', '狀態', '票在誰手上', '票券位置', '備註'],
     updaterField: '更新者',
   },
   '購物': {
@@ -169,8 +169,10 @@ function sheetToObjects_(sh) {
   const values = sh.getDataRange().getValues();
   if (values.length < 2) return [];
   const headers = values[0].map(String);
+  const idCol = headers.indexOf('ID');
   return values.slice(1)
-    .filter(r => r.some(c => c !== '' && c !== null))
+    // 有 ID 欄的分頁只回傳有 ID 的列；空白核取方塊（FALSE）不算有資料
+    .filter(r => (idCol >= 0 ? String(r[idCol]).trim() !== '' : r.some(c => c !== '' && c !== null && c !== false)))
     .map(r => {
       const o = {};
       headers.forEach((h, i) => { if (h) o[h] = normalize_(r[i]); });
@@ -192,6 +194,15 @@ function getTable_(sheetName) {
   if (!sh) throw new Error('找不到分頁：' + sheetName);
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
   return { sh, headers, rule: RULES[sheetName] };
+}
+
+function lastIdRow_(t) {
+  const idCol = t.headers.indexOf('ID') + 1;
+  const last = t.sh.getLastRow();
+  if (last < 2) return 1;
+  const ids = t.sh.getRange(2, idCol, last - 1, 1).getValues();
+  for (let i = ids.length - 1; i >= 0; i--) if (String(ids[i][0]).trim() !== '') return i + 2;
+  return 1;
 }
 
 function findRow_(t, id) {
@@ -223,8 +234,11 @@ function addRow_(sheetName, fields, user) {
   row['ID'] = nextId_(t);
 
   const values = t.headers.map(h => (h in row ? row[h] : ''));
-  t.sh.appendRow(values);
-  const r = t.sh.getLastRow();
+  // 不用 appendRow：下面如果有空白的核取方塊列，appendRow 會把資料寫到很遠的地方。
+  // 改成寫在「最後一個有 ID 的列」的下一列。
+  const r = lastIdRow_(t) + 1;
+  if (r > t.sh.getMaxRows()) t.sh.insertRowsAfter(t.sh.getMaxRows(), 1);
+  t.sh.getRange(r, 1, 1, values.length).setValues([values]);
   // 新列的勾選欄也要是核取方塊
   t.headers.forEach((h, i) => {
     if (BOOL_FIELDS.indexOf(h) >= 0) t.sh.getRange(r, i + 1).insertCheckboxes();
@@ -247,7 +261,28 @@ function updateRow_(sheetName, id, fields, user) {
     const c = t.headers.indexOf(t.rule.updaterField);
     if (c >= 0) t.sh.getRange(r, c + 1).setValue(user);
   }
-  return rowObject_(t, r);
+  const out = rowObject_(t, r);
+  // 行程和預約的時間互相同步：同一天、同一個地點 ID 的另一邊也一起改
+  if ('時間' in fields && (sheetName === '行程' || sheetName === '預約') && out['地點 ID']) {
+    syncTime_(sheetName === '行程' ? '預約' : '行程', out['日期'], out['地點 ID'], out['時間']);
+  }
+  return out;
+}
+
+function syncTime_(sheetName, date, placeId, time) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  if (!sh || sh.getLastRow() < 2) return;
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  const cDate = headers.indexOf('日期'), cPlace = headers.indexOf('地點 ID'), cTime = headers.indexOf('時間'), cDel = headers.indexOf('已刪除');
+  if (cDate < 0 || cPlace < 0 || cTime < 0) return;
+  const values = sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getValues();
+  values.forEach((row, i) => {
+    if (normalize_(row[cDate]) === date && row[cPlace] === placeId && !(cDel >= 0 && row[cDel] === true)) {
+      const cell = sh.getRange(i + 2, cTime + 1);
+      cell.setNumberFormat('@');
+      cell.setValue(time);
+    }
+  });
 }
 
 function toggleHeart_(id, user) {

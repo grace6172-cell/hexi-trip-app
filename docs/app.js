@@ -3,7 +3,7 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.12-2';
+const APP_VERSION = '2026.10.12-3';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
@@ -161,6 +161,7 @@ async function syncData(opts = {}) {
     if ((S.pending || 0) > 0 || (S.lastWrite || 0) >= started) {
       S.syncAgain = true;
     } else {
+      keepRecentWrites(data);
       S.data = data;
       S.syncedAt = Date.now();
       store.set('cache', { at: S.syncedAt, demo: false, data });
@@ -168,6 +169,7 @@ async function syncData(opts = {}) {
       if (opts.toast) toast('資料更新好了');
     }
   } catch (err) {
+    S.lastError = '同步：' + err.message;
     if (opts.toast) toast('更新失敗：' + err.message);
   } finally {
     S.syncing = false;
@@ -176,7 +178,39 @@ async function syncData(opts = {}) {
   }
 }
 
+/**
+ * 最近 2 分鐘內在這支手機上做的修改，同步回來的資料如果還沒反映（例如讀到舊的），
+ * 就把修改再套上去，畫面不會「恢復原狀」（Q02／Q08）。
+ */
+const RECENT_MS = 120000;
+function rememberWrite(w) {
+  S.recent = (S.recent || []).filter((x) => Date.now() - x.at < RECENT_MS);
+  S.recent.push(Object.assign({ at: Date.now() }, w));
+}
+function keepRecentWrites(data) {
+  S.recent = (S.recent || []).filter((x) => Date.now() - x.at < RECENT_MS);
+  S.recent.forEach((w) => {
+    const list = data[w.sheet] || (data[w.sheet] = []);
+    const row = list.find((r) => r.ID === w.id);
+    if (row) Object.assign(row, w.fields || {});
+    else if (w.row) list.push(Object.assign({}, w.row));
+  });
+}
+
 const rows = (sheet) => (S.data && S.data[sheet]) || [];
+
+/**
+ * 行程和預約的時間互相同步（同一天、同一個地點）。試算表那邊由 Apps Script 改，
+ * 這裡先把畫面上的另一邊改好，並記住，免得同步回來被蓋掉。
+ */
+function mirrorTime(fromSheet, id, time) {
+  const src = rows(fromSheet).find((r) => r.ID === id);
+  if (!src || !src['地點 ID']) return;
+  const other = fromSheet === '行程' ? '預約' : '行程';
+  rows(other).filter((r) => r['日期'] === src['日期'] && r['地點 ID'] === src['地點 ID'] && !truthy(r['已刪除']))
+    .forEach((r) => { r['時間'] = time; rememberWrite({ sheet: other, id: r.ID, fields: { 時間: time } }); });
+  render();
+}
 const placeById = (id) => rows('地點').find((p) => p.ID === id);
 
 /** 先改畫面，再送出；失敗就還原 */
@@ -191,9 +225,11 @@ async function updateRow(sheet, id, fields, okMsg, undoFields) {
   try {
     const j = await post({ action: 'update', sheet, id, fields });
     if (j.row) Object.assign(row, j.row);
+    rememberWrite({ sheet, id, fields });
   } catch (err) {
     Object.assign(row, before);
     render();
+    S.lastError = '修改：' + err.message;
     toast('沒存到：' + err.message);
   }
 }
@@ -207,12 +243,15 @@ async function addRow(sheet, fields, okMsg) {
   if (okMsg) toast(okMsg);
   try {
     const j = await post({ action: 'add', sheet, fields });
-    if (j.row) Object.assign(temp, j.row);
+    if (j.row) { Object.assign(temp, j.row); rememberWrite({ sheet, id: j.row.ID, row: Object.assign({}, temp) }); }
     else if (S.auth.demo) temp.ID = 'demo-' + Date.now();
+    // 確認畫面上的這筆真的在 S.data 裡（萬一中間資料被換掉）
+    if (!rows(sheet).some((r) => r.ID === temp.ID)) S.data[sheet].push(temp);
     render();
   } catch (err) {
     S.data[sheet] = S.data[sheet].filter((r) => r !== temp);
     render();
+    S.lastError = '新增：' + err.message;
     toast('沒存到：' + err.message);
     syncData();
   }
@@ -231,7 +270,9 @@ async function toggleHeart(id) {
   try {
     const j = await post({ action: 'heart', id });
     if (j.row) Object.assign(row, j.row);
+    rememberWrite({ sheet: '購物', id, fields: { [field]: row[field] } });
   } catch (err) {
+    S.lastError = '按 ❤️：' + err.message;
     row[field] = before;
     render();
     toast('沒存到：' + err.message);
@@ -380,8 +421,9 @@ function tripView(info) {
   const d = info.row;
   const wx = weatherText(info);
   let band = '';
-  if (info.code === 'bcn' || info.code === 'ams') band = `<canvas data-tile="${info.code}"></canvas>`;
-  else band = `<div class="move-band" style="--from:var(--${info.from || info.color});--to:var(--${info.to || info.color})"></div>`;
+  // 移動日用目的地的花紋（Q21）：10/24 → 巴塞花磚、10/28 → 阿姆藍花紋；回台灣那天用出發城市
+  const tile = (info.code === 'bcn' || info.code === 'ams') ? info.code : (info.to || info.from);
+  if (tile) band = `<canvas data-tile="${tile}"></canvas>`;
 
   const items = rows('行程').filter((r) => r['日期'] === S.date && !truthy(r['已刪除']));
   // 任何一天已經排進行程的地點，都不再出現在附近推薦（Q12）
@@ -887,6 +929,7 @@ function editBookSheet(id) {
     <div class="field"><label>小幫手（負責這筆預約、拿票的人）</label>
       <div class="who-pick">${['', ...USERS].map((u) => `<button type="button" class="chip${(r['票在誰手上'] || '') === u ? ' on' : ''}" data-act="pick" data-target="f-holder" data-v="${esc(u)}">${u ? who(u) : '還沒有'}</button>`).join('')}</div>
       <input type="hidden" id="f-holder" value="${esc(r['票在誰手上'] || '')}"></div>
+    <div class="field"><label for="f-time">時間（會同步到行程）</label><input id="f-time" type="time" value="${esc(r['時間'] || '')}"></div>
     <div class="field"><label for="f-where">訂位資訊</label><input id="f-where" value="${esc(r['票券位置'] || '')}" placeholder="例：訂位代號 ABC123、慧慧的信箱主旨 Sagrada Familia"></div>
     <div class="field"><label for="f-note">備註</label><textarea id="f-note">${esc(r['備註'] || '')}</textarea></div>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="book-save" data-v="${esc(id)}">儲存</button></div></div>`);
@@ -971,6 +1014,7 @@ function settingsSheet() {
   openSheet(`
     <h3>設定</h3>
     <div class="muted small">目前身分：${esc(who(S.auth.user))}${S.auth.demo ? '（示範資料，改了不會存）' : ''}・app 版本 ${APP_VERSION}</div>
+    <div class="muted small">上次同步：${S.syncedAt ? new Date(S.syncedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '還沒'}・送出中 ${S.pending || 0} 筆${S.lastError ? `<br>最近的錯誤：${esc(S.lastError)}` : ''}</div>
     <button class="btn" data-act="refresh">🔄 重新整理資料</button>
     <button class="btn" data-act="logout">換人／重新登入</button>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">關閉</button></div></div>`);
@@ -978,12 +1022,12 @@ function settingsSheet() {
 
 /* ---------------- 提示 ---------------- */
 let toastTimer;
-function toast(msg, undo) {
+function toast(msg, undo, label = '復原', ms) {
   const root = $('#toast-root');
-  root.innerHTML = `<div class="toast"><span>${esc(msg)}</span>${undo ? '<button data-act="undo">復原</button>' : ''}</div>`;
+  root.innerHTML = `<div class="toast"><span>${esc(msg)}</span>${undo ? `<button data-act="undo">${esc(label)}</button>` : ''}</div>`;
   toast.undo = undo || null;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { root.innerHTML = ''; toast.undo = null; }, undo ? 5000 : 2600);
+  toastTimer = setTimeout(() => { root.innerHTML = ''; toast.undo = null; }, ms || (undo ? 5000 : 2600));
 }
 
 /* ---------------- 瓷磚紋（巴塞：高第碎瓷磚；阿姆：台夫特藍瓷） ---------------- */
@@ -1049,6 +1093,7 @@ async function loadData() {
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]');
   if (!el) return;
+  S.touched = true;
   const act = el.dataset.act, v = el.dataset.v;
   if (act === 'sheet-close') {
     if (e.target === el || el.tagName === 'BUTTON') { closeSheet(); if (S.renderAfterSheet) { S.renderAfterSheet = false; render(); } }
@@ -1108,7 +1153,9 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'item-save': {
-      updateRow('行程', v, { 時段: $('#f-slot').value, 時間: $('#f-time').value, 備註: $('#f-note').value }, '存好了');
+      const time = $('#f-time').value;
+      updateRow('行程', v, { 時段: $('#f-slot').value, 時間: time, 備註: $('#f-note').value }, '存好了');
+      mirrorTime('行程', v, time);
       closeSheet();
       break;
     }
@@ -1145,10 +1192,13 @@ document.addEventListener('click', async (e) => {
       updateRow('待辦', el.dataset.id, { 負責人: v }, v ? `改由 ${v} 負責` : '改成大家一起');
       break;
     }
-    case 'book-save':
-      updateRow('預約', v, { 票在誰手上: $('#f-holder').value, 票券位置: $('#f-where').value, 備註: $('#f-note').value }, '存好了');
+    case 'book-save': {
+      const time = $('#f-time').value;
+      updateRow('預約', v, { 時間: time, 票在誰手上: $('#f-holder').value, 票券位置: $('#f-where').value, 備註: $('#f-note').value }, '存好了');
+      mirrorTime('預約', v, time);
       closeSheet();
       break;
+    }
     case 'prep-tab': S.prepTab = v; render(); break;
     case 'only-mine': S.onlyMine = !S.onlyMine; render(); break;
     case 'todo-done': {
@@ -1219,10 +1269,13 @@ async function checkVersion() {
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
     const { v } = await r.json();
     if (v && v !== APP_VERSION) {
+      const go = () => location.replace(location.pathname + '?v=' + encodeURIComponent(v));
+      // 使用者已經開始操作（或還有修改在送）就不要突然重新載入，改用提示讓她自己按
+      if (S.touched || (S.pending || 0) > 0) { toast('有新版本了', go, '更新', 15000); return; }
       const tried = sessionStorage.getItem('reloaded-for');
       if (tried === v) return;
       sessionStorage.setItem('reloaded-for', v);
-      location.replace(location.pathname + '?v=' + encodeURIComponent(v));
+      go();
     }
   } catch (e) { /* 沒網路就算了 */ }
 }
