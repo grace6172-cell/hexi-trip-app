@@ -2,6 +2,8 @@
 'use strict';
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
+// 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
+const APP_VERSION = '2026.10.12-1';
 const USERS = ['妹妹', '簡', '十一', '朱'];
 const SLOTS = ['早上', '中午', '下午', '晚上'];
 const SLOT_MIN = { 早上: 600, 中午: 780, 下午: 960, 晚上: 1200 };
@@ -316,6 +318,7 @@ function render() {
     <main>${body}</main>
     ${S.tab === 'prep' && S.prepTab === 'todo' ? '<button class="fab" data-act="add-todo">＋ 新增待辦</button>' : ''}
     ${S.tab === 'prep' && S.prepTab === 'shop' ? '<button class="fab" data-act="add-shop">＋ 新增想買的</button>' : ''}
+    ${S.tab === 'trip' ? '<button class="fab" data-act="add-item">＋ 新增行程</button>' : ''}
     <nav class="tabbar">
       ${[['trip', '📅', '行程'], ['places', '📍', '地點'], ['book', '🎫', '預約'], ['prep', '🧳', '準備'], ['journal', '📝', '日誌']]
         .map(([k, ic, l]) => `<button class="tab${S.tab === k ? ' on' : ''}" data-act="tab" data-v="${k}"><span class="ic">${ic}</span>${l}</button>`).join('')}
@@ -376,9 +379,11 @@ function tripView(info) {
   else band = `<div class="move-band" style="--from:var(--${info.from || info.color});--to:var(--${info.to || info.color})"></div>`;
 
   const items = rows('行程').filter((r) => r['日期'] === S.date && !truthy(r['已刪除']));
-  const usedIds = new Set(items.map((r) => r['地點 ID']).filter(Boolean));
+  // 任何一天已經排進行程的地點，都不再出現在附近推薦（Q12）
+  const usedIds = new Set(rows('行程').filter((r) => !truthy(r['已刪除'])).map((r) => r['地點 ID']).filter(Boolean));
   const bySlot = {};
   SLOTS.forEach((s) => { bySlot[s] = items.filter((r) => r['時段'] === s).sort((a, b) => (Number(a['排序']) || 0) - (Number(b['排序']) || 0) || String(a['時間']).localeCompare(String(b['時間']))); });
+  const slotCity = slotCities(info, bySlot);
 
   const flights = items.filter((r) => r['類別'] === '航班');
   const infoPills = [];
@@ -389,7 +394,7 @@ function tripView(info) {
     const list = bySlot[slot];
     let html = list.map((r) => itemHtml(r)).join('');
     if (!list.length) html += '<div class="free">今天放飛 🕊</div>';
-    html += recoHtml(slot, bySlot, usedIds, info);
+    html += recoHtml(slot, bySlot, usedIds, slotCity[slot]);
     return `<section class="slot"><div class="slot-t">${slot}</div><div class="slot-c">${html}</div></section>`;
   }).join('');
 
@@ -430,46 +435,79 @@ function itemHtml(r) {
     const st = openState(p, wd, timeToMin(r['時間']) ?? SLOT_MIN[r['時段']], false);
     if (st.k !== 'unknown') badges.push(`<span class="pill ${st.k}">${esc(st.t)}</span>`);
   }
+  if (p && isClosed(p)) badges.push('<span class="pill bad">⚠ 暫時關閉</span>');
   if (r['來源'] === 'app 新增' && r['新增者']) badges.push(`<span class="pill mute">${esc(r['新增者'])} 加的</span>`);
-  const icon = r['類別'] === '航班' ? '✈️' : '📌';
   return `<div class="card item">
-    <button class="item-main" data-act="edit-item" data-v="${esc(r.ID)}">
-      <span class="item-name">${r['時間'] ? `<span class="time">${esc(r['時間'])}</span>` : ''}<span>${icon} ${esc(r['名稱'])}</span></span>
-      ${badges.length ? `<span class="badges">${badges.join('')}</span>` : ''}
-      ${r['備註'] ? `<span class="item-note">${esc(r['備註'])}</span>` : ''}
-    </button>
+    <div class="item-body">
+      <button class="item-main" data-act="edit-item" data-v="${esc(r.ID)}">
+        <span class="item-name">${r['時間'] ? `<span class="time">${esc(r['時間'])}</span>` : ''}<span>${itemIcon(r, p)} ${esc(r['名稱'])}</span></span>
+        ${badges.length ? `<span class="badges">${badges.join('')}</span>` : ''}
+        ${r['備註'] ? `<span class="item-note">${esc(r['備註'])}</span>` : ''}
+      </button>
+      ${p && r['類別'] !== '航班' ? `<button class="see-more" data-act="place" data-v="${esc(p.ID)}">看更多 ›</button>` : ''}
+    </div>
     ${p ? `<a class="icon-btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener" aria-label="開 Google 地圖">🗺</a>` : ''}
   </div>`;
+}
+
+/* 行程圖示：航班 ✈️；有連到地點就依地點類型（Q19）；其他 📌 */
+const TYPE_ICON = { 景點: '🏛', 餐廳: '🍽', 酒吧: '🍸', 甜點: '🍰', 咖啡廳: '☕', 麵包店: '🥐', 購物: '🛍', 住宿: '🏨' };
+function itemIcon(r, p) {
+  if (r['類別'] === '航班') return '✈️';
+  return (p && TYPE_ICON[p['類型']]) || '📌';
+}
+/** Google 地圖顯示暫時關閉或歇業的店（記在查證狀態欄）不推薦 */
+const isClosed = (p) => /暫時關閉|永久停業|已歇業/.test(String(p['查證狀態'] || ''));
+
+/**
+ * 每個時段在哪座城市（Q14）。一般日子整天同一城；移動日以航班切開：
+ * 起飛前的時段算出發城市、起飛那個時段在路上（不推薦）、抵達之後算目的地。
+ */
+const CITY_NAME = { bcn: '巴塞隆納', ams: '阿姆斯特丹' };
+function slotCities(info, bySlot) {
+  const out = {};
+  if (info.code === 'bcn' || info.code === 'ams') { SLOTS.forEach((s) => { out[s] = CITY_NAME[info.code]; }); return out; }
+  const flightIdx = SLOTS.map((s, i) => (bySlot[s].some((r) => r['類別'] === '航班') ? i : -1)).filter((i) => i >= 0);
+  const dep = flightIdx.length ? flightIdx[0] : -1;
+  const arr = flightIdx.length ? flightIdx[flightIdx.length - 1] : -1;
+  SLOTS.forEach((s, i) => {
+    let code = null;
+    if (dep < 0) code = info.to || info.from;
+    else if (i < dep) code = info.from;
+    else if (i > arr || (i === arr && arr !== dep)) code = info.to;
+    out[s] = code ? CITY_NAME[code] : null;
+  });
+  return out;
 }
 function timeToMin(t) {
   const m = String(t || '').match(/^(\d{1,2}):(\d{2})/);
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
 
-function anchorsFor(slot, bySlot, info) {
+function anchorsFor(slot, bySlot, city) {
   const idx = SLOTS.indexOf(slot);
   const order = [idx, idx - 1, idx + 1, idx - 2, idx + 2, idx - 3, idx + 3].filter((i) => i >= 0 && i < 4);
   for (const i of order) {
-    const pts = bySlot[SLOTS[i]].map((r) => placeById(r['地點 ID'])).filter((p) => p && !['交通'].includes(p['類型'])).map(coordOf).filter(Boolean);
+    const pts = bySlot[SLOTS[i]].map((r) => placeById(r['地點 ID']))
+      .filter((p) => p && p['類型'] !== '交通' && p['城市'] === city).map(coordOf).filter(Boolean);
     if (pts.length) return pts;
   }
-  if (info.code === 'bcn') {
-    const home = rows('地點').find((p) => p['類型'] === '住宿' && p['城市'] === '巴塞隆納');
-    if (home && coordOf(home)) return [coordOf(home)];
-  }
+  const home = rows('地點').find((p) => p['類型'] === '住宿' && p['城市'] === city);
+  if (home && coordOf(home)) return [coordOf(home)];
   return [];
 }
 
-function recoHtml(slot, bySlot, usedIds, info) {
-  const anchors = anchorsFor(slot, bySlot, info);
+function recoHtml(slot, bySlot, usedIds, city) {
+  if (!city) return '';
+  const anchors = anchorsFor(slot, bySlot, city);
   if (!anchors.length) {
-    return info.code === 'ams' ? '<div class="reco"><div class="reco-h">附近還沒有口袋名單，敲妹妹 👀</div></div>' : '';
+    return city === '阿姆斯特丹' ? '<div class="reco"><div class="reco-h">附近還沒有口袋名單，敲妹妹 👀</div></div>' : '';
   }
   const wd = weekdayOf(S.date);
   const min = SLOT_MIN[slot];
   const list = [];
   rows('地點').forEach((p) => {
-    if (!RECO_TYPES.includes(p['類型']) || usedIds.has(p.ID)) return;
+    if (!RECO_TYPES.includes(p['類型']) || usedIds.has(p.ID) || p['城市'] !== city || isClosed(p)) return;
     const c = coordOf(p);
     if (!c) return;
     const best = Math.min(...anchors.map((a) => distM(a, c)));
@@ -490,8 +528,8 @@ function recoHtml(slot, bySlot, usedIds, info) {
     ${shown.map(({ p, w, st }) => `
       <div class="reco-row">
         <span class="star">${p.ID === starId ? '★' : ''}</span>
-        <div style="min-width:0"><div class="nm">${esc(p['名稱'])}</div>
-          <div class="meta num">${esc(p['類型'])}・步行 ${w} 分${Number(p['評分']) ? `・${Number(p['評分']).toFixed(1)}★` : ''}${truthy(p['已去過']) ? '・去過了' : ''}${st.k === 'warn' ? '・快打烊' : ''}</div></div>
+        <button class="reco-info" data-act="place" data-v="${esc(p.ID)}" data-slot="${slot}"><div class="nm">${TYPE_ICON[p['類型']] || ''} ${esc(p['名稱'])}</div>
+          <div class="meta num">${esc(p['類型'])}・步行 ${w} 分${Number(p['評分']) ? `・${Number(p['評分']).toFixed(1)}★` : ''}${truthy(p['已去過']) ? '・去過了' : ''}${st.k === 'warn' ? '・快打烊' : ''}・看更多 ›</div></button>
         <div class="acts">
           <a class="icon-btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener" aria-label="開 Google 地圖">🗺</a>
           <button class="icon-btn" data-act="add-reco" data-v="${esc(p.ID)}" data-slot="${slot}" aria-label="加進行程">＋</button>
@@ -547,6 +585,7 @@ function placeHtml(p, now) {
       <a class="icon-btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener" aria-label="開 Google 地圖">🗺</a>
     </div>
     <div class="badges">
+      ${isClosed(p) ? '<span class="pill bad">⚠ 暫時關閉</span>' : ''}
       ${Number(p['評分']) ? `<span class="pill mute num">★ ${Number(p['評分']).toFixed(1)}</span>` : ''}
       ${st.k !== 'unknown' ? `<span class="pill ${st.k}">${esc(st.t)}</span>` : '<span class="pill mute">營業時間待查</span>'}
       ${visited ? '<span class="pill ok">打卡完成 ✅</span>' : ''}
@@ -562,14 +601,15 @@ function placeHtml(p, now) {
 }
 
 /* ----- 預約 ----- */
-// 試算表欄位名稱不變（票在誰手上／票券位置），畫面上改叫「小幫手」「定位資訊」
-const BOOK_FILTERS = [['all', '全部'], ['todo', '未訂'], ['mine', '我是小幫手'], ['nobody', '還沒有小幫手']];
+// 試算表欄位名稱不變（票在誰手上／票券位置），畫面上改叫「小幫手」「訂位資訊」
+const BOOK_FILTERS = [['all', '全部'], ['todo', '未訂'], ['done', '已訂'], ['mine', '我是小幫手'], ['nobody', '還沒有小幫手']];
 function bookView() {
   const all = rows('預約').slice().sort((a, b) => String(a['日期']).localeCompare(String(b['日期'])) || String(a['時間'] || '99').localeCompare(String(b['時間'] || '99')));
   const count = (s) => all.filter((r) => r['狀態'] === s).length;
   const f = S.bookFilter || 'all';
   const list = all.filter((r) => {
     if (f === 'todo') return r['狀態'] === '未訂';
+    if (f === 'done') return r['狀態'] === '已訂';
     if (f === 'mine') return r['票在誰手上'] === S.auth.user;
     if (f === 'nobody') return !r['票在誰手上'] && r['狀態'] !== '已取消';
     return true;
@@ -584,7 +624,7 @@ function bookView() {
         <div style="flex:1;min-width:0">
           <div class="bk-name">${r['時間'] ? `<span class="num" style="color:var(--city)">${esc(r['時間'])}</span> ` : ''}${esc(r['項目'])}</div>
           <div class="bk-meta">${r['票在誰手上'] ? `🙋 小幫手：${esc(r['票在誰手上'])}` : '🙋 小幫手哪位？'}</div>
-          ${r['票券位置'] ? `<div class="bk-meta">📎 定位資訊：${esc(r['票券位置'])}</div>` : ''}
+          ${r['票券位置'] ? `<div class="bk-meta">📎 訂位資訊：${esc(r['票券位置'])}</div>` : ''}
           ${r['備註'] ? `<div class="bk-meta">${esc(r['備註'])}</div>` : ''}
           ${r['更新者'] ? `<div class="bk-meta">最後由 ${esc(r['更新者'])} 更新</div>` : ''}
         </div>
@@ -708,7 +748,7 @@ function shopAddSheet() {
 }
 
 /* ----- 準備 → 工具箱 ----- */
-const TOOL_ORDER = ['緊急', '保險', '交通', '分帳', '翻譯'];
+const TOOL_ORDER = ['交通', '緊急', '保險', '分帳', '翻譯'];
 const TOOL_ICON = { 緊急: '🆘', 保險: '🛡', 交通: '🚇', 分帳: '💶', 翻譯: '🗣' };
 const PHRASES = [
   ['你好', 'Hola', 'Hallo'],
@@ -735,8 +775,16 @@ function toolsView() {
   const html = groups.map(([g, list]) => {
     let body;
     if (g === '交通') {
-      body = list.map((r) => `<div class="card"><div class="t" style="font-weight:700">${esc(r['名稱'])}</div>
-        <ol class="steps">${String(r['內容'] || '').split('→').map((s) => `<li>${esc(s.trim())}</li>`).join('')}</ol></div>`).join('');
+      body = list.map((r) => {
+        const text = String(r['內容'] || '');
+        const content = text.includes('→')
+          ? `<ol class="steps">${text.split('→').map((s) => `<li>${esc(s.trim())}</li>`).join('')}</ol>`
+          : `<div class="d">${esc(text)}</div>`;
+        return `<div class="card tool">
+          <div class="tool-text"><div class="t">${esc(r['名稱'])}</div>${content}</div>
+          ${r['連結'] ? `<div class="tool-acts"><a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">🔗 打開</a></div>` : ''}
+        </div>`;
+      }).join('');
     } else if (g === '翻譯') {
       const links = list.filter((r) => r['連結']).map((r) => `<a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">🌐 ${esc(r['名稱'])}</a>`).join('');
       body = `${links}<div class="muted small" style="margin:4px 2px">點一句放大，直接拿給店員看</div>
@@ -746,10 +794,15 @@ function toolsView() {
         const tel = g === '緊急' ? phoneOf(r['內容']) : null;
         const mine = g === '保險' && r['名稱'] === S.auth.user;
         const pending = /待/.test(String(r['內容'] || '')) || /待/.test(String(r['查證狀態'] || ''));
+        // 內容用「｜」分段，一段一行，比較不擠（Q15）
+        const lines = String(r['內容'] || '').split('｜').map((s) => `<div class="d${pending ? ' muted' : ''}">${esc(s.trim())}</div>`).join('');
+        const acts = [
+          tel ? `<a class="btn primary" href="tel:${esc(tel)}">📞 撥打 ${esc(tel)}</a>` : '',
+          r['連結'] ? `<a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">🔗 打開官網</a>` : '',
+        ].filter(Boolean).join('');
         return `<div class="card tool${mine ? ' mine' : ''}">
-          <div style="flex:1;min-width:0"><div class="t">${esc(r['名稱'])}${mine ? '（你）' : ''}</div><div class="d${pending ? ' muted' : ''}">${esc(r['內容'] || '')}</div></div>
-          ${tel ? `<a class="btn primary" href="tel:${esc(tel)}">📞 ${esc(tel)}</a>` : ''}
-          ${r['連結'] ? `<a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">打開</a>` : ''}
+          <div class="tool-text"><div class="t">${esc(r['名稱'])}${mine ? '（你）' : ''}</div>${lines}</div>
+          ${acts ? `<div class="tool-acts">${acts}</div>` : ''}
         </div>`;
       }).join('');
     }
@@ -800,7 +853,7 @@ function editBookSheet(id) {
     <div class="field"><label>小幫手（負責這筆預約、拿票的人）</label>
       <div class="who-pick">${['', ...USERS].map((u) => `<button type="button" class="chip${(r['票在誰手上'] || '') === u ? ' on' : ''}" data-act="pick" data-target="f-holder" data-v="${esc(u)}">${u || '還沒有'}</button>`).join('')}</div>
       <input type="hidden" id="f-holder" value="${esc(r['票在誰手上'] || '')}"></div>
-    <div class="field"><label for="f-where">定位資訊</label><input id="f-where" value="${esc(r['票券位置'] || '')}" placeholder="例：訂位代號 ABC123、朱的信箱主旨 Sagrada Familia"></div>
+    <div class="field"><label for="f-where">訂位資訊</label><input id="f-where" value="${esc(r['票券位置'] || '')}" placeholder="例：訂位代號 ABC123、朱的信箱主旨 Sagrada Familia"></div>
     <div class="field"><label for="f-note">備註</label><textarea id="f-note">${esc(r['備註'] || '')}</textarea></div>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="book-save" data-v="${esc(id)}">儲存</button></div></div>`);
 }
@@ -827,10 +880,61 @@ function ownerSheet(id) {
     <div class="who-grid">${['', ...USERS].map((u) => `<button class="${(r['負責人'] || '') === u ? 'on' : ''}" data-act="owner-set" data-id="${esc(id)}" data-v="${esc(u)}">${u || '大家'}</button>`).join('')}</div>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button></div></div>`);
 }
+/** 地點詳細（行程的「看更多」、附近推薦點名稱）（Q13） */
+function placeSheet(id, slot) {
+  const p = placeById(id);
+  if (!p) return;
+  const now = madridNow();
+  const st = openState(p, now.wd, now.min, true);
+  const used = rows('行程').some((r) => r['地點 ID'] === id && !truthy(r['已刪除']));
+  const canAdd = slot && !used;
+  openSheet(`
+    <h3>${TYPE_ICON[p['類型']] || '📍'} ${esc(p['名稱'])}</h3>
+    <div class="badges">
+      ${isClosed(p) ? '<span class="pill bad">⚠ 暫時關閉</span>' : ''}
+      ${Number(p['評分']) ? `<span class="pill mute num">★ ${Number(p['評分']).toFixed(1)}</span>` : ''}
+      ${st.k !== 'unknown' ? `<span class="pill ${st.k}">當地現在：${esc(st.t)}</span>` : ''}
+      <span class="pill mute">${esc(p['類型'])}・${esc(p['區域'] || '')}</span>
+    </div>
+    <div class="list small">
+      ${p['特色'] ? `<div>✨ ${esc(p['特色'])}</div>` : ''}
+      ${p['營業提醒'] ? `<div class="hours">🕘 ${esc(p['營業提醒'])}</div>` : ''}
+      ${p['交通'] ? `<div class="hours">🚇 ${esc(p['交通'])}</div>` : ''}
+      ${p['地址'] ? `<div>📍 ${esc(p['地址'])}</div>` : ''}
+      ${p['查證狀態'] ? `<div class="muted">${esc(p['查證狀態'])}</div>` : ''}
+      ${used ? '<div class="muted">已經排進行程了</div>' : ''}
+    </div>
+    <div class="acts">
+      <a class="btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 Google 地圖</a>
+      <div class="right">
+        <button class="btn" data-act="sheet-close">關閉</button>
+        ${canAdd ? `<button class="btn primary" data-act="add-reco" data-v="${esc(p.ID)}" data-slot="${slot}">＋ 加進${slot}</button>` : ''}
+      </div>
+    </div>`);
+}
+
+/** 手動新增行程（Q09）：可以只寫名稱，也可以從口袋名單挑地點 */
+function itemAddSheet() {
+  const info = dayInfo(S.date);
+  const cities = [info.code === 'move' ? null : CITY_NAME[info.code], CITY_NAME[info.from], CITY_NAME[info.to]].filter(Boolean);
+  const places = rows('地點').filter((p) => p['類型'] !== '交通' && (!cities.length || cities.includes(p['城市'])))
+    .sort((a, b) => String(a['類型']).localeCompare(String(b['類型'])) || String(a['名稱']).localeCompare(String(b['名稱'])));
+  openSheet(`
+    <h3>新增行程｜${md(S.date)}（週${WD_NAME[weekdayOf(S.date)]}）</h3>
+    <div class="field"><label>時段</label>
+      <div class="who-pick">${SLOTS.map((s, i) => `<button type="button" class="chip${i === 0 ? ' on' : ''}" data-act="pick" data-target="f-slot" data-v="${s}">${s}</button>`).join('')}</div>
+      <input type="hidden" id="f-slot" value="${SLOTS[0]}"></div>
+    <div class="field"><label for="f-time">時間（可不填）</label><input id="f-time" type="time"></div>
+    <div class="field"><label for="f-place">從口袋名單挑（可不選）</label><select id="f-place"><option value="">不指定地點</option>${places.map((p) => `<option value="${esc(p.ID)}">${TYPE_ICON[p['類型']] || ''} ${esc(p['名稱'])}</option>`).join('')}</select></div>
+    <div class="field"><label for="f-name">名稱</label><input id="f-name" placeholder="例：超市補貨、河邊散步（選了地點可以不填）"></div>
+    <div class="field"><label for="f-note">備註</label><textarea id="f-note"></textarea></div>
+    <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="item-add-save">新增</button></div></div>`);
+}
+
 function settingsSheet() {
   openSheet(`
     <h3>設定</h3>
-    <div class="muted small">目前身分：${esc(S.auth.user)}${S.auth.demo ? '（示範資料，改了不會存）' : ''}</div>
+    <div class="muted small">目前身分：${esc(S.auth.user)}${S.auth.demo ? '（示範資料，改了不會存）' : ''}・app 版本 ${APP_VERSION}</div>
     <button class="btn" data-act="refresh">🔄 重新整理資料</button>
     <button class="btn" data-act="logout">換人／重新登入</button>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">關閉</button></div></div>`);
@@ -946,6 +1050,7 @@ document.addEventListener('click', async (e) => {
     case 'date': S.date = v; render(); break;
     case 'reco-more': S.recoOpen[v] = !S.recoOpen[v]; render(); break;
     case 'add-reco': {
+      closeSheet();
       const p = placeById(v);
       const slot = el.dataset.slot;
       const n = rows('行程').filter((r) => r['日期'] === S.date).length + 1;
@@ -953,6 +1058,19 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'edit-item': editItemSheet(v); break;
+    case 'place': placeSheet(v, el.dataset.slot); break;
+    case 'add-item': itemAddSheet(); break;
+    case 'item-add-save': {
+      const pid = $('#f-place').value;
+      const p = pid ? placeById(pid) : null;
+      const name = $('#f-name').value.trim() || (p ? p['名稱'] : '');
+      if (!name) { $('#f-name').focus(); break; }
+      const slot = $('#f-slot').value;
+      const n = rows('行程').filter((r) => r['日期'] === S.date).length + 1;
+      closeSheet();
+      addRow('行程', { 日期: S.date, 時段: slot, 時間: $('#f-time').value, '地點 ID': pid, 名稱: name, 備註: $('#f-note').value.trim(), 排序: n }, `已加進 ${md(S.date)} ${slot}`);
+      break;
+    }
     case 'item-save': {
       updateRow('行程', v, { 時段: $('#f-slot').value, 時間: $('#f-time').value, 備註: $('#f-note').value }, '存好了');
       closeSheet();
@@ -1054,9 +1172,29 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'pass') { const b = $('[data-act="login"]'); if (b) b.click(); }
   if (e.key === 'Escape') closeSheet();
 });
+/**
+ * 手機（尤其加到主畫面的）常會一直用快取的舊版 app.js。
+ * 每次打開或切回來就檢查 version.json，版本不同就帶新參數重新載入一次。
+ */
+async function checkVersion() {
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return;
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    const { v } = await r.json();
+    if (v && v !== APP_VERSION) {
+      const tried = sessionStorage.getItem('reloaded-for');
+      if (tried === v) return;
+      sessionStorage.setItem('reloaded-for', v);
+      location.replace(location.pathname + '?v=' + encodeURIComponent(v));
+    }
+  } catch (e) { /* 沒網路就算了 */ }
+}
+
 // 自動同步：回到 app 時、以及開著的時候每 45 秒抓一次別人改的東西
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && S.auth && S.data) syncData();
+  if (document.visibilityState !== 'visible') return;
+  checkVersion();
+  if (S.auth && S.data) syncData();
 });
 setInterval(() => {
   if (document.visibilityState === 'visible' && S.auth && S.data && !$('#sheet-root').innerHTML) syncData();
@@ -1089,6 +1227,7 @@ if (document.fonts && document.fonts.ready) document.fonts.ready.then(paintTiles
 
 /* ---------------- 啟動 ---------------- */
 (function start() {
+  checkVersion();
   const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
   if (isLocal && new URLSearchParams(location.search).has('demo')) S.auth = { user: '朱', key: null, demo: true };
   if (!S.auth) { render(); return; }

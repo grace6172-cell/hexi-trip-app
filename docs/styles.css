@@ -157,7 +157,9 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
 .slot-t { font-size: 13px; color: var(--sub); font-weight: 700; padding-top: 12px; }
 .slot-c { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .item { display: flex; gap: 10px; align-items: flex-start; }
-.item-main { flex: 1; min-width: 0; border: 0; background: none; text-align: left; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.item-main { min-width: 0; border: 0; background: none; text-align: left; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.see-more { align-self: flex-start; border: 0; background: none; padding: 4px 0; min-height: 32px; color: var(--city); font-size: 13px; font-weight: 500; }
 .item-name { font-weight: 700; font-size: 16px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .item-name .time { color: var(--city); font-variant-numeric: tabular-nums; }
 .item-note { font-size: 13px; color: var(--sub); }
@@ -167,6 +169,7 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
 .reco-h { font-size: 12px; color: var(--sub); padding: 4px 0; display: flex; justify-content: space-between; }
 .reco-row { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
 .reco-row .star { color: var(--city); }
+.reco-row .reco-info { min-width: 0; border: 0; background: none; padding: 0; text-align: left; }
 .reco-row .nm { font-weight: 500; font-size: 15px; min-width: 0; }
 .reco-row .meta { font-size: 12px; color: var(--sub); }
 .reco-row .acts { display: flex; gap: 6px; }
@@ -229,9 +232,12 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
 .shop.done .t { text-decoration: line-through; color: var(--sub); }
 
 /* 工具箱 */
-.tool { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.tool .t { font-weight: 700; font-size: 15px; }
-.tool .d { font-size: 14px; }
+.tool { display: flex; flex-direction: column; gap: 10px; }
+.tool-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tool .t { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+.tool .d { font-size: 14px; line-height: 1.5; }
+.tool-acts { display: flex; flex-direction: column; gap: 8px; }
+.tool-acts .btn { width: 100%; text-decoration: none; }
 .tool.mine { border-color: var(--city); }
 .steps { margin: 8px 0 0; padding-left: 22px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
 .phrases { padding: 4px 12px; }
