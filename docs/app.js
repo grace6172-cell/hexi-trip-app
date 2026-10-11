@@ -3,11 +3,16 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.12-1';
-const USERS = ['妹妹', '簡', '十一', '朱'];
+const APP_VERSION = '2026.10.12-2';
+const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
+const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
+// 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
+const OLD_NAMES = { 妹妹: '淇淇', 簡: '婷婷', 十一: '宜宜', 朱: '慧慧' };
+/** 名字前面加上動物圖示；試算表裡只存名字 */
+const who = (u) => (u ? (AVATAR[u] || '') + u : '');
 const SLOTS = ['早上', '中午', '下午', '晚上'];
 const SLOT_MIN = { 早上: 600, 中午: 780, 下午: 960, 晚上: 1200 };
-const TYPES = ['景點', '餐廳', '酒吧', '甜點', '咖啡廳', '麵包店', '購物'];
+const TYPES = ['景點', '餐廳', '酒吧', '甜點', '咖啡廳', '麵包店', '購物', '住宿'];
 const RECO_TYPES = ['景點', '餐廳', '酒吧', '甜點', '咖啡廳', '麵包店'];
 const STATUS = ['未訂', '已訂', '已取消'];
 const CITY_COORD = { bcn: [41.3874, 2.1686], ams: [52.3676, 4.9041] };
@@ -312,7 +317,7 @@ function render() {
       <div class="brand"><img src="icon-192.png" alt="" width="34" height="34"><h1>瘋女紙荷西行</h1>${S.auth.demo ? '<span class="demo-tag">示範</span>' : ''}</div>
       <div class="top-acts">
         <button class="icon-btn" id="sync-btn" data-act="refresh" aria-label="重新整理資料">🔄</button>
-        <button class="who" data-act="settings" aria-label="設定">👤 ${esc(S.auth.user)}</button>
+        <button class="who" data-act="settings" aria-label="設定">${esc(who(S.auth.user))}</button>
       </div>
     </header>
     <main>${body}</main>
@@ -352,7 +357,7 @@ function loginView() {
         <div class="muted">阿姆斯特丹 × 巴塞隆納｜2026/10/22–11/1</div>
       </div></div>
       <div class="field"><label>我是誰？</label>
-        <div class="who-grid">${USERS.map((u) => `<button class="${pick === u ? 'on' : ''}" data-act="login-user" data-v="${esc(u)}">${esc(u)}</button>`).join('')}</div>
+        <div class="who-grid">${USERS.map((u) => `<button class="${pick === u ? 'on' : ''}" data-act="login-user" data-v="${esc(u)}">${esc(who(u))}</button>`).join('')}</div>
       </div>
       <div class="field"><label for="pass">旅行通行碼</label>
         <input id="pass" type="password" autocomplete="current-password" placeholder="四個人約好的那組">
@@ -436,7 +441,7 @@ function itemHtml(r) {
     if (st.k !== 'unknown') badges.push(`<span class="pill ${st.k}">${esc(st.t)}</span>`);
   }
   if (p && isClosed(p)) badges.push('<span class="pill bad">⚠ 暫時關閉</span>');
-  if (r['來源'] === 'app 新增' && r['新增者']) badges.push(`<span class="pill mute">${esc(r['新增者'])} 加的</span>`);
+  if (r['來源'] === 'app 新增' && r['新增者']) badges.push(`<span class="pill mute">${esc(who(r['新增者']))} 加的</span>`);
   return `<div class="card item">
     <div class="item-body">
       <button class="item-main" data-act="edit-item" data-v="${esc(r.ID)}">
@@ -501,7 +506,7 @@ function recoHtml(slot, bySlot, usedIds, city) {
   if (!city) return '';
   const anchors = anchorsFor(slot, bySlot, city);
   if (!anchors.length) {
-    return city === '阿姆斯特丹' ? '<div class="reco"><div class="reco-h">附近還沒有口袋名單，敲妹妹 👀</div></div>' : '';
+    return city === '阿姆斯特丹' ? '<div class="reco"><div class="reco-h">附近還沒有口袋名單，敲 🐟淇淇 👀</div></div>' : '';
   }
   const wd = weekdayOf(S.date);
   const min = SLOT_MIN[slot];
@@ -529,7 +534,7 @@ function recoHtml(slot, bySlot, usedIds, city) {
       <div class="reco-row">
         <span class="star">${p.ID === starId ? '★' : ''}</span>
         <button class="reco-info" data-act="place" data-v="${esc(p.ID)}" data-slot="${slot}"><div class="nm">${TYPE_ICON[p['類型']] || ''} ${esc(p['名稱'])}</div>
-          <div class="meta num">${esc(p['類型'])}・步行 ${w} 分${Number(p['評分']) ? `・${Number(p['評分']).toFixed(1)}★` : ''}${truthy(p['已去過']) ? '・去過了' : ''}${st.k === 'warn' ? '・快打烊' : ''}・看更多 ›</div></button>
+          <div class="meta num">${esc(p['類型'])}・步行 ${w} 分${Number(p['評分']) ? `・${Number(p['評分']).toFixed(1)}★` : ''}${p['價位'] ? `・💶${esc(p['價位'])}` : ''}${truthy(p['已去過']) ? '・去過了' : ''}${st.k === 'warn' ? '・快打烊' : ''}・看更多 ›</div></button>
         <div class="acts">
           <a class="icon-btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener" aria-label="開 Google 地圖">🗺</a>
           <button class="icon-btn" data-act="add-reco" data-v="${esc(p.ID)}" data-slot="${slot}" aria-label="加進行程">＋</button>
@@ -559,8 +564,11 @@ function placesView() {
   const regions = ['全部', ...new Set(all.map((p) => p['區域']).filter(Boolean))];
   if (!regions.includes(f.region)) f.region = '全部';
   const q = f.q.trim().toLowerCase();
+  const fp = f.price || '全部';
   const list = all.filter((p) => (f.type === '全部' || p['類型'] === f.type) && (f.region === '全部' || p['區域'] === f.region)
+    && (fp === '全部' || p['價位'] === fp)
     && (!q || [p['名稱'], p['特色'], p['區域'], p['地址']].join(' ').toLowerCase().includes(q)));
+  const showPrice = f.type === '全部' || FOOD_TYPES.includes(f.type);
   list.sort((a, b) => Number(truthy(a['已去過'])) - Number(truthy(b['已去過'])) || (Number(b['評分']) || 0) - (Number(a['評分']) || 0));
   const counts = {};
   all.forEach((p) => { counts[p['類型']] = (counts[p['類型']] || 0) + 1; });
@@ -571,11 +579,35 @@ function placesView() {
       <input class="search" id="pq" type="search" placeholder="搜尋店名、特色、區域" value="${esc(f.q)}">
       <div class="chips" data-sk="ptype">${['全部', ...TYPES].filter((t) => t === '全部' || counts[t]).map((t) => `<button class="chip${f.type === t ? ' on' : ''}" data-act="pf-type" data-v="${t}">${t}${t !== '全部' ? ` ${counts[t]}` : ''}</button>`).join('')}</div>
       ${regions.length > 2 ? `<div class="chips" data-sk="pregion">${regions.map((r) => `<button class="chip${f.region === r ? ' on' : ''}" data-act="pf-region" data-v="${esc(r)}">${esc(r)}</button>`).join('')}</div>` : ''}
+      ${showPrice ? `<div class="chips" data-sk="pprice">${['全部', '低', '中', '高'].map((v) => `<button class="chip${fp === v ? ' on' : ''}" data-act="pf-price" data-v="${v}">${v === '全部' ? '💶 不限價位' : `💶 ${v}價位`}</button>`).join('')}</div>` : ''}
     </div>
     <div class="muted small" style="margin:2px 2px 10px">當地現在 ${String(Math.floor(now.min / 60)).padStart(2, '0')}:${String(now.min % 60).padStart(2, '0')}（週${WD_NAME[now.wd]}），燈號照這個時間算</div>
     <div class="list">${list.length ? list.map((p) => placeHtml(p, now)).join('') : '<div class="empty">沒有符合的地點</div>'}</div>`;
 }
+/** 價位（以當地水平、每人）：💶 中 €20–30／人；Google 沒資料的標「估計」 */
+const FOOD_TYPES = ['餐廳', '酒吧', '甜點', '咖啡廳', '麵包店'];
+function priceText(p) {
+  if (!p['價位']) return '';
+  const range = String(p['價格區間'] || '');
+  return /估計/.test(range) ? `💶 ${p['價位']}（估計）` : `💶 ${p['價位']}${range ? ' ' + range : ''}`;
+}
+/** 住宿卡片：入住退房、備品直接攤開（Q11） */
+function lodgingHtml(p) {
+  const lines = (s) => String(s || '').split('｜').filter(Boolean).map((x) => `<div>${esc(x.trim())}</div>`).join('');
+  return `<article class="card place lodging">
+    <div class="place-top">
+      <div class="nm">🏨 ${esc(p['名稱'])}<small>${esc(p['城市'])}・住宿</small></div>
+      <a class="icon-btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener" aria-label="開 Google 地圖">🗺</a>
+    </div>
+    <div class="lodge-sec"><div class="lodge-h">🕒 入住／退房</div>${lines(p['營業提醒'])}</div>
+    <div class="lodge-sec"><div class="lodge-h">📍 地址</div>${lines(p['地址'])}</div>
+    <div class="lodge-sec"><div class="lodge-h">🧴 房型與備品</div>${lines(p['特色'])}</div>
+    ${p['交通'] ? `<div class="lodge-sec"><div class="lodge-h">🚇 交通</div><div class="hours">${esc(p['交通'])}</div></div>` : ''}
+    ${p['官網'] ? `<a class="btn" href="${esc(p['官網'])}" target="_blank" rel="noopener">🌐 官網</a>` : ''}
+  </article>`;
+}
 function placeHtml(p, now) {
+  if (p['類型'] === '住宿') return lodgingHtml(p);
   const st = openState(p, now.wd, now.min, true);
   const visited = truthy(p['已去過']);
   return `<article class="card place${visited ? ' visited' : ''}">
@@ -587,10 +619,12 @@ function placeHtml(p, now) {
     <div class="badges">
       ${isClosed(p) ? '<span class="pill bad">⚠ 暫時關閉</span>' : ''}
       ${Number(p['評分']) ? `<span class="pill mute num">★ ${Number(p['評分']).toFixed(1)}</span>` : ''}
+      ${priceText(p) ? `<span class="pill mute num">${esc(priceText(p))}</span>` : ''}
       ${st.k !== 'unknown' ? `<span class="pill ${st.k}">${esc(st.t)}</span>` : '<span class="pill mute">營業時間待查</span>'}
       ${visited ? '<span class="pill ok">打卡完成 ✅</span>' : ''}
     </div>
     ${p['特色'] ? `<div class="feat">${esc(p['特色'])}</div>` : ''}
+    ${p['官網'] ? `<a class="btn" href="${esc(p['官網'])}" target="_blank" rel="noopener">🌐 官網</a>` : ''}
     <details><summary>營業時間・交通 ▾</summary>
       ${p['營業提醒'] ? `<div class="hours">${esc(p['營業提醒'])}</div>` : ''}
       ${p['交通'] ? `<div class="hours" style="margin-top:6px">🚇 ${esc(p['交通'])}</div>` : ''}
@@ -623,10 +657,10 @@ function bookView() {
       <div style="display:flex;gap:10px;align-items:flex-start">
         <div style="flex:1;min-width:0">
           <div class="bk-name">${r['時間'] ? `<span class="num" style="color:var(--city)">${esc(r['時間'])}</span> ` : ''}${esc(r['項目'])}</div>
-          <div class="bk-meta">${r['票在誰手上'] ? `🙋 小幫手：${esc(r['票在誰手上'])}` : '🙋 小幫手哪位？'}</div>
+          <div class="bk-meta">${r['票在誰手上'] ? `🙋 小幫手：${esc(who(r['票在誰手上']))}` : '🙋 小幫手哪位？'}</div>
           ${r['票券位置'] ? `<div class="bk-meta">📎 訂位資訊：${esc(r['票券位置'])}</div>` : ''}
           ${r['備註'] ? `<div class="bk-meta">${esc(r['備註'])}</div>` : ''}
-          ${r['更新者'] ? `<div class="bk-meta">最後由 ${esc(r['更新者'])} 更新</div>` : ''}
+          ${r['更新者'] ? `<div class="bk-meta">最後由 ${esc(who(r['更新者']))} 更新</div>` : ''}
         </div>
         <button class="icon-btn" data-act="edit-book" data-v="${esc(r.ID)}" aria-label="編輯">✏️</button>
       </div>
@@ -660,7 +694,7 @@ function prepView() {
         <button class="body" data-act="edit-todo" data-v="${esc(r.ID)}">
           <div class="t">${esc(r['項目'])}</div>${r['說明'] ? `<div class="d">${esc(r['說明'])}</div>` : ''}
         </button>
-        <button class="owner${r['負責人'] === S.auth.user ? ' me' : ''}" data-act="owner" data-v="${esc(r.ID)}" aria-label="換負責人">${esc(r['負責人'] || '大家')} ▾</button>
+        <button class="owner${r['負責人'] === S.auth.user ? ' me' : ''}" data-act="owner" data-v="${esc(r.ID)}" aria-label="換負責人">${esc(r['負責人'] ? who(r['負責人']) : '大家')} ▾</button>
       </div>`;
     }).join('') || '<div class="empty">沒有待辦</div>'}</div>`;
 }
@@ -706,7 +740,7 @@ function shopItemHtml(r) {
       <div class="badges">
         ${r['順路日期'] ? `<span class="pill city">${esc(shopDateLabel(r['順路日期']))}</span>` : ''}
         ${warn ? '<span class="pill mute">待查證</span>' : ''}
-        ${hs.length ? `<span class="muted small">${esc(hs.join('、'))}</span>` : ''}
+        ${hs.length ? `<span class="muted small">${esc(hs.map(who).join('、'))}</span>` : ''}
       </div>
       <button class="heart${mine ? ' on' : ''}" data-act="heart" data-v="${esc(r.ID)}">❤️ ${hs.length}</button>
     </div>
@@ -724,7 +758,7 @@ function shopDetailSheet(id) {
       ${r['參考價'] ? `<div>💶 ${esc(r['參考價'])}</div>` : ''}
       ${r['說明'] ? `<div>${esc(r['說明'])}</div>` : ''}
       ${r['順路日期'] ? `<div>📅 ${esc(shopDateLabel(r['順路日期']))}</div>` : ''}
-      ${hearts(r).length ? `<div>❤️ ${esc(hearts(r).join('、'))}</div>` : ''}
+      ${hearts(r).length ? `<div>❤️ ${esc(hearts(r).map(who).join('、'))}</div>` : ''}
       ${r['來源'] ? `<div class="muted">來源：${esc(r['來源'])}${r['查證狀態'] ? `｜${esc(r['查證狀態'])}` : ''}</div>` : ''}
     </div>
     <div class="acts">
@@ -851,9 +885,9 @@ function editBookSheet(id) {
   openSheet(`
     <h3>${esc(r['項目'])}</h3>
     <div class="field"><label>小幫手（負責這筆預約、拿票的人）</label>
-      <div class="who-pick">${['', ...USERS].map((u) => `<button type="button" class="chip${(r['票在誰手上'] || '') === u ? ' on' : ''}" data-act="pick" data-target="f-holder" data-v="${esc(u)}">${u || '還沒有'}</button>`).join('')}</div>
+      <div class="who-pick">${['', ...USERS].map((u) => `<button type="button" class="chip${(r['票在誰手上'] || '') === u ? ' on' : ''}" data-act="pick" data-target="f-holder" data-v="${esc(u)}">${u ? who(u) : '還沒有'}</button>`).join('')}</div>
       <input type="hidden" id="f-holder" value="${esc(r['票在誰手上'] || '')}"></div>
-    <div class="field"><label for="f-where">訂位資訊</label><input id="f-where" value="${esc(r['票券位置'] || '')}" placeholder="例：訂位代號 ABC123、朱的信箱主旨 Sagrada Familia"></div>
+    <div class="field"><label for="f-where">訂位資訊</label><input id="f-where" value="${esc(r['票券位置'] || '')}" placeholder="例：訂位代號 ABC123、慧慧的信箱主旨 Sagrada Familia"></div>
     <div class="field"><label for="f-note">備註</label><textarea id="f-note">${esc(r['備註'] || '')}</textarea></div>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="book-save" data-v="${esc(id)}">儲存</button></div></div>`);
 }
@@ -864,7 +898,7 @@ function todoSheet(id) {
     <div class="field"><label for="f-title">要做什麼</label><input id="f-title" value="${esc(r['項目'] || '')}" placeholder="例：買 eSIM"></div>
     <div class="field"><label for="f-desc">說明</label><textarea id="f-desc">${esc(r['說明'] || '')}</textarea></div>
     <div class="field"><label>負責人</label>
-      <div class="who-pick">${['', ...USERS].map((u) => `<button type="button" class="chip${(id ? (r['負責人'] || '') : S.auth.user) === u ? ' on' : ''}" data-act="pick" data-target="f-owner" data-v="${esc(u)}">${u || '大家'}</button>`).join('')}</div>
+      <div class="who-pick">${['', ...USERS].map((u) => `<button type="button" class="chip${(id ? (r['負責人'] || '') : S.auth.user) === u ? ' on' : ''}" data-act="pick" data-target="f-owner" data-v="${esc(u)}">${u ? who(u) : '大家'}</button>`).join('')}</div>
       <input type="hidden" id="f-owner" value="${esc(id ? (r['負責人'] || '') : S.auth.user)}"></div>
     <div class="acts">
       ${id ? `<button class="btn danger" data-act="todo-remove" data-v="${esc(id)}">移除</button>` : ''}
@@ -877,7 +911,7 @@ function ownerSheet(id) {
   if (!r) return;
   openSheet(`
     <h3>誰負責「${esc(r['項目'])}」？</h3>
-    <div class="who-grid">${['', ...USERS].map((u) => `<button class="${(r['負責人'] || '') === u ? 'on' : ''}" data-act="owner-set" data-id="${esc(id)}" data-v="${esc(u)}">${u || '大家'}</button>`).join('')}</div>
+    <div class="who-grid">${['', ...USERS].map((u) => `<button class="${(r['負責人'] || '') === u ? 'on' : ''}" data-act="owner-set" data-id="${esc(id)}" data-v="${esc(u)}">${u ? who(u) : '大家'}</button>`).join('')}</div>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button></div></div>`);
 }
 /** 地點詳細（行程的「看更多」、附近推薦點名稱）（Q13） */
@@ -894,6 +928,7 @@ function placeSheet(id, slot) {
       ${isClosed(p) ? '<span class="pill bad">⚠ 暫時關閉</span>' : ''}
       ${Number(p['評分']) ? `<span class="pill mute num">★ ${Number(p['評分']).toFixed(1)}</span>` : ''}
       ${st.k !== 'unknown' ? `<span class="pill ${st.k}">當地現在：${esc(st.t)}</span>` : ''}
+      ${priceText(p) ? `<span class="pill mute num">${esc(priceText(p))}</span>` : ''}
       <span class="pill mute">${esc(p['類型'])}・${esc(p['區域'] || '')}</span>
     </div>
     <div class="list small">
@@ -906,6 +941,7 @@ function placeSheet(id, slot) {
     </div>
     <div class="acts">
       <a class="btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 Google 地圖</a>
+      ${p['官網'] ? `<a class="btn" href="${esc(p['官網'])}" target="_blank" rel="noopener">🌐 官網</a>` : ''}
       <div class="right">
         <button class="btn" data-act="sheet-close">關閉</button>
         ${canAdd ? `<button class="btn primary" data-act="add-reco" data-v="${esc(p.ID)}" data-slot="${slot}">＋ 加進${slot}</button>` : ''}
@@ -934,7 +970,7 @@ function itemAddSheet() {
 function settingsSheet() {
   openSheet(`
     <h3>設定</h3>
-    <div class="muted small">目前身分：${esc(S.auth.user)}${S.auth.demo ? '（示範資料，改了不會存）' : ''}・app 版本 ${APP_VERSION}</div>
+    <div class="muted small">目前身分：${esc(who(S.auth.user))}${S.auth.demo ? '（示範資料，改了不會存）' : ''}・app 版本 ${APP_VERSION}</div>
     <button class="btn" data-act="refresh">🔄 重新整理資料</button>
     <button class="btn" data-act="logout">換人／重新登入</button>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">關閉</button></div></div>`);
@@ -1036,7 +1072,7 @@ document.addEventListener('click', async (e) => {
       }
       break;
     }
-    case 'demo': S.auth = { user: S.loginUser || '朱', key: null, demo: true }; loadData(); break;
+    case 'demo': S.auth = { user: S.loginUser || '慧慧', key: null, demo: true }; loadData(); break;
     case 'logout': store.del('auth'); store.del('cache'); S.auth = null; S.data = null; closeSheet(); render(); break;
     case 'retry': loadData(); break;
     case 'refresh':
@@ -1081,6 +1117,7 @@ document.addEventListener('click', async (e) => {
     case 'pf-city': S.pf.city = v; S.pf.region = '全部'; render(); break;
     case 'pf-type': S.pf.type = v; render(); break;
     case 'pf-region': S.pf.region = v; render(); break;
+    case 'pf-price': S.pf.price = v; render(); break;
     case 'visited': {
       const p = placeById(v);
       const nv = !truthy(p['已去過']);
@@ -1228,8 +1265,9 @@ if (document.fonts && document.fonts.ready) document.fonts.ready.then(paintTiles
 /* ---------------- 啟動 ---------------- */
 (function start() {
   checkVersion();
+  if (S.auth && OLD_NAMES[S.auth.user]) { S.auth.user = OLD_NAMES[S.auth.user]; store.set('auth', S.auth); }
   const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-  if (isLocal && new URLSearchParams(location.search).has('demo')) S.auth = { user: '朱', key: null, demo: true };
+  if (isLocal && new URLSearchParams(location.search).has('demo')) S.auth = { user: '慧慧', key: null, demo: true };
   if (!S.auth) { render(); return; }
   const cache = store.get('cache');
   if (cache && cache.data && !!cache.demo === !!S.auth.demo) { S.data = cache.data; render(); }

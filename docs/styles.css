@@ -276,3 +276,10 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
   .sheet { animation: up .18s ease-out; }
   @keyframes up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 }
+
+/* 住宿卡片 */
+.lodging { gap: 10px; }
+.lodge-sec { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.lodge-h { font-size: 12px; color: var(--sub); font-weight: 700; letter-spacing: .04em; }
+.lodging .btn { text-decoration: none; }
+.place > .btn { align-self: flex-start; text-decoration: none; min-height: 38px; padding: 6px 14px; }

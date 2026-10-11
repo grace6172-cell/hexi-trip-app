@@ -8,7 +8,9 @@
  *   PASSCODE  旅行通行碼，四個人共用；必填
  */
 
-const USERS = ['妹妹', '簡', '十一', '朱'];
+const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
+// 2026-10-12 改名前的舊代號：還沒更新的手機送舊名字進來，一律記成新名字
+const OLD_NAMES = { 妹妹: '淇淇', 簡: '婷婷', 十一: '宜宜', 朱: '慧慧' };
 
 // 讀取時回傳的分頁（「說明」不給 app）
 const READ_SHEETS = ['每日', '行程', '地點', '預約', '購物', '待辦', '日誌', '工具箱'];
@@ -146,6 +148,7 @@ function checkKey_(key) {
 }
 
 function checkUser_(user) {
+  if (OLD_NAMES[user]) user = OLD_NAMES[user];
   if (USERS.indexOf(user) < 0) throw new Error('不認得這位旅伴：' + user);
   return user;
 }
