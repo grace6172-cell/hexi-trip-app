@@ -3,7 +3,7 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.12-3';
+const APP_VERSION = '2026.10.12-4';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
@@ -853,9 +853,15 @@ function toolsView() {
     if (g === '交通') {
       body = list.map((r) => {
         const text = String(r['內容'] || '');
+        // 「→」是步驟（編號）；「｜」是一站一行（地鐵指南）
         const content = text.includes('→')
           ? `<ol class="steps">${text.split('→').map((s) => `<li>${esc(s.trim())}</li>`).join('')}</ol>`
-          : `<div class="d">${esc(text)}</div>`;
+          : text.includes('｜')
+            ? `<ul class="stations">${text.split('｜').map((s) => {
+              const [k, ...rest] = s.trim().split('：');
+              return rest.length ? `<li><b>${esc(k)}</b>　${esc(rest.join('：'))}</li>` : `<li>${esc(s.trim())}</li>`;
+            }).join('')}</ul>`
+            : `<div class="d">${esc(text)}</div>`;
         return `<div class="card tool">
           <div class="tool-text"><div class="t">${esc(r['名稱'])}</div>${content}</div>
           ${r['連結'] ? `<div class="tool-acts"><a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">🔗 打開</a></div>` : ''}

@@ -283,3 +283,7 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
 .lodge-h { font-size: 12px; color: var(--sub); font-weight: 700; letter-spacing: .04em; }
 .lodging .btn { text-decoration: none; }
 .place > .btn { align-self: flex-start; text-decoration: none; min-height: 38px; padding: 6px 14px; }
+
+/* 地鐵指南：一站一行 */
+.stations { margin: 6px 0 0; padding-left: 18px; font-size: 14px; display: flex; flex-direction: column; gap: 5px; }
+.stations b { font-weight: 700; }
