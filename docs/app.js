@@ -3,7 +3,7 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.12-4';
+const APP_VERSION = '2026.10.13-1';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
@@ -845,28 +845,117 @@ function phoneOf(text) {
   const m = String(text || '').match(/\+?\d[\d\s-]{1,18}\d/);
   return m ? m[0].replace(/[\s-]/g, '') : null;
 }
+/* ----- 工具箱 → 交通 ----- */
+// 巴塞常用車站（座標來自 OpenStreetMap，2026-10-13 取）；地點沒寫交通時用來找最近的站
+const BCN_STATIONS = [
+  ['Espanya', 'L1/L3', 41.37501, 2.15152], ['Universitat', 'L1/L2', 41.38569, 2.16430],
+  ['Catalunya', 'L1/L3/FGC', 41.38710, 2.16960], ['Urquinaona', 'L1/L4', 41.38809, 2.17331],
+  ['Arc de Triomf', 'L1', 41.39211, 2.18091], ['Paral·lel', 'L2/L3', 41.37494, 2.16926],
+  ['Sant Antoni', 'L2', 41.37979, 2.16327], ['Passeig de Gràcia', 'L2/L3/L4', 41.39000, 2.16700],
+  ['Tetuan', 'L2', 41.39482, 2.17552], ['Monumental', 'L2', 41.40052, 2.17945],
+  ['Sagrada Família', 'L2/L5', 41.40400, 2.17450], ['Drassanes', 'L3', 41.37667, 2.17577],
+  ['Liceu', 'L3', 41.38140, 2.17307], ['Diagonal', 'L3/L5', 41.39520, 2.15940],
+  ['Fontana', 'L3', 41.40206, 2.15298], ['Lesseps', 'L3', 41.40616, 2.15002],
+  ['Vallcarca', 'L3', 41.41191, 2.14452], ['Sants Estació', 'L3/L5', 41.38070, 2.14070],
+  ['Poble Sec', 'L3', 41.37498, 2.16057], ['Jaume I', 'L4', 41.38400, 2.17871],
+  ['Barceloneta', 'L4', 41.38209, 2.18552], ['Ciutadella／Vila Olímpica', 'L4', 41.38782, 2.19358],
+  ['Joanic', 'L4', 41.40627, 2.16319], ['Verdaguer', 'L4/L5', 41.39950, 2.16770],
+  ['Girona', 'L4', 41.39502, 2.17096], ['Hospital Clínic', 'L5', 41.38816, 2.15054],
+  ['Sant Pau／Dos de Maig', 'L5', 41.41073, 2.17598], ['Provença', 'FGC', 41.39287, 2.15798],
+  ['Gràcia', 'FGC', 41.39976, 2.15215], ['Muntaner', 'FGC', 41.39867, 2.14281],
+  ['Sant Gervasi', 'FGC', 41.40107, 2.14708],
+];
+const LINE_COLOR = { L1: '#E2231A', L2: '#9B2C98', L3: '#33A532', L4: '#F5B800', L5: '#0072BC', FGC: '#F58220', L9: '#F68B1F' };
+const lineBadges = (lines) => lines.map((l) => {
+  const key = l.replace(/\s.*/, '');
+  return `<span class="line-badge" style="--lc:${LINE_COLOR[key] || 'var(--sub)'}">${esc(l)}</span>`;
+}).join('');
+
+/** 從地點的「交通」欄抓第一個建議：路線、站名、步行分鐘、轉乘提示 */
+function parseTransit(text) {
+  const first = String(text || '').split('\n')[0].split(/，或|或/)[0];
+  const m = first.match(/((?:L\d+(?:\s*(?:Sud|Nord))?)(?:\s*\/\s*L\d+)*|FGC)\s+(.+?)\s*站/);
+  if (!m) return first.trim() ? { raw: first.trim() } : null;
+  const walk = first.match(/步行約\s*(\d+(?:[–-]\d+)?)\s*分/);
+  const note = (first.split('站')[1] || '').match(/^(轉[^，]+)/);
+  return {
+    lines: m[1] === 'FGC' ? ['FGC'] : m[1].split('/').map((s) => s.trim()),
+    station: m[2].replace(/\s*[|｜]\s*/g, '／'),
+    walk: walk ? walk[1] : null,
+    note: note ? note[1] : '',
+  };
+}
+/** 沒寫交通的地點：用座標找最近的站（估算） */
+function nearestStation(p) {
+  const c = coordOf(p);
+  if (!c || p['城市'] !== '巴塞隆納') return null;
+  let best = null;
+  BCN_STATIONS.forEach(([name, lines, lat, lng]) => {
+    const d = distM(c, [lat, lng]);
+    if (!best || d < best.d) best = { name, lines, d };
+  });
+  return best && { lines: best.lines.split('/'), station: best.name, walk: String(walkMin(best.d)), note: '', est: true };
+}
+
+/** 依行程自動整理「我們會用到的站」：新增、刪除、改日期都會跟著變 */
+function usedStationsHtml(city) {
+  const items = rows('行程').filter((r) => !truthy(r['已刪除']) && r['地點 ID'] && r['日期'])
+    .map((r) => ({ r, p: placeById(r['地點 ID']) }))
+    .filter(({ p }) => p && p['城市'] === city && p['類型'] !== '交通')
+    .sort((a, b) => String(a.r['日期']).localeCompare(String(b.r['日期'])) || SLOTS.indexOf(a.r['時段']) - SLOTS.indexOf(b.r['時段']) || (Number(a.r['排序']) || 0) - (Number(b.r['排序']) || 0));
+  if (!items.length) return '<div class="empty">這座城市的行程還沒有地點</div>';
+  const seen = new Set();
+  let lastDate = '';
+  return items.map(({ r, p }) => {
+    const key = r['日期'] + p.ID;
+    if (seen.has(key)) return '';
+    seen.add(key);
+    const info = parseTransit(p['交通']) || nearestStation(p);
+    let head = '';
+    if (r['日期'] !== lastDate) { lastDate = r['日期']; head = `<div class="ts-date">${md(r['日期'])}（週${WD_NAME[weekdayOf(r['日期'])]}）</div>`; }
+    let how;
+    if (!info) how = '<span class="muted">交通待補</span>';
+    else if (info.raw) how = `<span>${esc(info.raw)}</span>`;
+    else how = `${lineBadges(info.lines)} <b>${esc(info.station)}</b>${info.walk ? `<span class="muted">・走 ${esc(info.walk)} 分${info.est ? '（估算）' : ''}</span>` : ''}${info.note ? `<span class="muted">・${esc(info.note)}</span>` : ''}`;
+    return `${head}<button class="ts-row" data-act="place" data-v="${esc(p.ID)}"><span class="ts-place">${itemIcon(r, p)} ${esc(p['名稱'])}</span><span class="ts-how">${how}</span></button>`;
+  }).join('');
+}
+
+function transitHtml(list) {
+  const city = S.transitCity || (dayInfo(S.date || pickDefaultDate()).color === 'ams' ? '阿姆斯特丹' : '巴塞隆納');
+  const mine = list.filter((r) => !r['城市'] || r['城市'] === city);
+  const block = (b) => mine.filter((r) => (r['區塊'] || '須知') === b);
+  const tipCard = (r) => {
+    const text = String(r['內容'] || '');
+    if (text.includes('→')) {
+      return `<details class="card tool"><summary class="t">▸ ${esc(r['名稱'])}</summary>
+        <ol class="steps">${text.split('→').map((s) => `<li>${esc(s.trim())}</li>`).join('')}</ol></details>`;
+    }
+    const lines = text.split(/[｜；]/).map((s) => s.trim()).filter(Boolean);
+    return `<div class="card tool"><div class="tool-text"><div class="t">${esc(r['名稱'])}</div>
+      ${lines.length > 1 ? `<ul class="stations">${lines.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : `<div class="d">${esc(text)}</div>`}</div></div>`;
+  };
+  const maps = block('地圖').filter((r) => r['連結']);
+  const routes = block('路線');
+  return `
+    <div class="seg">${['巴塞隆納', '阿姆斯特丹'].map((c) => `<button class="${city === c ? 'on' : ''}" data-act="transit-city" data-v="${c}">${c}</button>`).join('')}</div>
+    ${maps.length ? `<div class="map-btns">${maps.map((r) => `<a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">🗺 ${esc(r['名稱'])}</a>`).join('')}</div>` : ''}
+    ${block('須知').map(tipCard).join('')}
+    <div class="card ts-card"><div class="t">📍 我們會用到的站</div><div class="muted small">依行程自動整理，點一下看地點詳細</div>${usedStationsHtml(city)}</div>
+    ${routes.length ? `<details class="card tool"><summary class="t">▸ 看全部路線（${routes.length}）</summary>
+      ${routes.map((r) => `<div class="route"><div class="t">${esc(r['名稱'])}</div><ul class="stations">${String(r['內容'] || '').split('｜').map((s) => {
+        const [k, ...rest] = s.trim().split('：');
+        return rest.length ? `<li><b>${esc(k)}</b>　${esc(rest.join('：'))}</li>` : `<li>${esc(s.trim())}</li>`;
+      }).join('')}</ul></div>`).join('')}</details>` : ''}`;
+}
+
 function toolsView() {
   const all = rows('工具箱');
   const groups = TOOL_ORDER.map((g) => [g, all.filter((r) => r['類別'] === g)]).filter(([, l]) => l.length);
   const html = groups.map(([g, list]) => {
     let body;
     if (g === '交通') {
-      body = list.map((r) => {
-        const text = String(r['內容'] || '');
-        // 「→」是步驟（編號）；「｜」是一站一行（地鐵指南）
-        const content = text.includes('→')
-          ? `<ol class="steps">${text.split('→').map((s) => `<li>${esc(s.trim())}</li>`).join('')}</ol>`
-          : text.includes('｜')
-            ? `<ul class="stations">${text.split('｜').map((s) => {
-              const [k, ...rest] = s.trim().split('：');
-              return rest.length ? `<li><b>${esc(k)}</b>　${esc(rest.join('：'))}</li>` : `<li>${esc(s.trim())}</li>`;
-            }).join('')}</ul>`
-            : `<div class="d">${esc(text)}</div>`;
-        return `<div class="card tool">
-          <div class="tool-text"><div class="t">${esc(r['名稱'])}</div>${content}</div>
-          ${r['連結'] ? `<div class="tool-acts"><a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">🔗 打開</a></div>` : ''}
-        </div>`;
-      }).join('');
+      body = transitHtml(list);
     } else if (g === '翻譯') {
       const links = list.filter((r) => r['連結']).map((r) => `<a class="btn" href="${esc(r['連結'])}" target="_blank" rel="noopener">🌐 ${esc(r['名稱'])}</a>`).join('');
       body = `${links}<div class="muted small" style="margin:4px 2px">點一句放大，直接拿給店員看</div>
@@ -1171,6 +1260,7 @@ document.addEventListener('click', async (e) => {
     case 'pf-type': S.pf.type = v; render(); break;
     case 'pf-region': S.pf.region = v; render(); break;
     case 'pf-price': S.pf.price = v; render(); break;
+    case 'transit-city': S.transitCity = v; render(); break;
     case 'visited': {
       const p = placeById(v);
       const nv = !truthy(p['已去過']);

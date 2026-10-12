@@ -287,3 +287,19 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
 /* 地鐵指南：一站一行 */
 .stations { margin: 6px 0 0; padding-left: 18px; font-size: 14px; display: flex; flex-direction: column; gap: 5px; }
 .stations b { font-weight: 700; }
+
+/* 交通：地圖按鈕、我們會用到的站、路線 */
+.map-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.map-btns .btn { text-decoration: none; flex: 1 1 140px; }
+details.card summary { cursor: pointer; list-style: none; min-height: 32px; display: flex; align-items: center; }
+details.card summary::-webkit-details-marker { display: none; }
+details.card[open] summary { margin-bottom: 6px; }
+.ts-card { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.ts-card > .t { font-weight: 700; font-size: 15px; }
+.ts-date { font-size: 12px; font-weight: 700; color: var(--sub); margin: 10px 0 2px; }
+.ts-row { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); background: none; padding: 8px 0; }
+.ts-place { font-weight: 500; font-size: 14px; }
+.ts-how { font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.line-badge { display: inline-block; font-size: 11px; font-weight: 700; color: #fff; background: var(--lc); border-radius: 6px; padding: 1px 6px; }
+.route { border-top: 1px solid var(--line); padding: 8px 0; }
+.route .t { font-weight: 700; font-size: 14px; }
