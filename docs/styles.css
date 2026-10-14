@@ -317,7 +317,10 @@ details.card[open] summary { margin-bottom: 6px; }
 .jn-react { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
 .rx { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 4px 10px; min-height: 32px; font-size: 14px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .rx.on { border-color: var(--city); background: color-mix(in srgb, var(--city) 12%, transparent); }
-.rx-who { font-size: 12px; }
+.rx .num { font-size: 13px; font-weight: 700; }
+.rx-names { border: 0; background: none; color: var(--sub); font-size: 13px; padding: 4px 2px; cursor: pointer; }
+.rx-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.rx-e { font-size: 20px; }
 .jn-cmts { border-top: 1px dashed var(--line); padding-top: 6px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 .cmt { position: relative; padding-right: 26px; line-height: 1.5; }
 .cmt-x { position: absolute; right: 0; top: 0; border: 0; background: none; color: var(--sub); font-size: 13px; padding: 2px 6px; cursor: pointer; }

@@ -3,7 +3,7 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.15-4';
+const APP_VERSION = '2026.10.15-5';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
@@ -1051,9 +1051,10 @@ function journalCard(r) {
     <div class="jn-react">
       ${REACTIONS.map((e) => {
         const people = rm[e] || [];
-        return `<button class="rx${people.includes(S.auth.user) ? ' on' : ''}" data-act="react" data-v="${esc(r.ID)}" data-e="${e}" aria-label="${e} ${people.length}">${e}${people.length ? `<span class="rx-who">${people.map((u) => AVATAR[u] || u).join('')}</span>` : ''}</button>`;
+        return `<button class="rx${people.includes(S.auth.user) ? ' on' : ''}" data-act="react" data-v="${esc(r.ID)}" data-e="${e}" aria-label="${e} ${people.length}">${e}${people.length ? `<span class="num">${people.length}</span>` : ''}</button>`;
       }).join('')}
       <button class="rx" data-act="j-reply" data-v="${esc(r.ID)}">💬 回覆${cmts.length ? ` ${cmts.length}` : ''}</button>
+      ${Object.keys(rm).length ? `<button class="rx-names" data-act="react-who" data-v="${esc(r.ID)}">看誰按的 ›</button>` : ''}
     </div>
     ${cmts.length ? `<div class="jn-cmts">${cmts.map((c) => `<div class="cmt">
       <b>${esc(who(c['作者']))}</b> ${esc(c['內容'])} <span class="muted small">${esc(stampLabel(c['時間']))}</span>
@@ -1087,6 +1088,17 @@ function journalSheet(id) {
       ${id ? `<button class="btn danger" data-act="ask-remove" data-do="journal-remove" data-name="${esc(String(r['內容']).slice(0, 20))}" data-v="${esc(id)}">移除</button>` : ''}
       <div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="journal-save" data-v="${esc(id || '')}">${id ? '儲存' : '送出'}</button></div>
     </div>`, () => { const t = $('#f-jtext'); if (t && !id) t.focus(); });
+}
+
+/** 誰按了哪個表情（卡片上只顯示數字） */
+function reactWhoSheet(id) {
+  const r = rows('日誌').find((x) => x.ID === id);
+  if (!r) return;
+  const rm = reactMap(r);
+  openSheet(`
+    <h3>誰按了表情</h3>
+    <div class="list">${REACTIONS.filter((e) => (rm[e] || []).length).map((e) => `<div class="rx-row"><span class="rx-e">${e}</span><span>${rm[e].map((u) => esc(who(u))).join('、')}</span></div>`).join('')}</div>
+    <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">關閉</button></div></div>`);
 }
 
 function replySheet(id) {
@@ -1543,6 +1555,7 @@ document.addEventListener('click', async (e) => {
     case 'journal-remove': closeSheet(); updateRow('日誌', v, { 已刪除: true }, '已移除', { 已刪除: false }); break;
     case 'react': toggleReaction(v, el.dataset.e); break;
     case 'j-reply': replySheet(v); break;
+    case 'react-who': reactWhoSheet(v); break;
     case 'cmt-send': {
       const text = $('#f-cmt').value.trim();
       if (!text) { $('#f-cmt').focus(); break; }
