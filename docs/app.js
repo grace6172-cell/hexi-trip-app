@@ -3,7 +3,7 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.15-6';
+const APP_VERSION = '2026.10.15-7';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
@@ -1039,7 +1039,14 @@ function myMissingDays() {
   const today = madridNow().date;
   return journalDays().filter((d) => d <= today && !journalOf(d, S.auth.user));
 }
+// 出發前給大家練習的「試玩」頁：日期欄存「試玩」，出發日（每日第一天）起就不顯示
+const J_TEST = '試玩';
+const tripStarted = () => { const d = rows('每日').map((r) => r['日期']).sort(); return !!d.length && madridNow().date >= d[0]; };
+/** 日誌可以切換的頁：出發前多一頁試玩 */
+const journalPages = () => (tripStarted() ? [] : [J_TEST]).concat(journalDays());
+const journalTitle = (date) => (date === J_TEST ? '🧪 試玩區' : tripDayLabel(date));
 function defaultJournalDate() {
+  if (!tripStarted()) return J_TEST;
   const days = journalDays();
   const today = madridNow().date;
   if (days.includes(today)) return today;
@@ -1047,37 +1054,43 @@ function defaultJournalDate() {
 }
 
 function journalView() {
-  const days = journalDays();
-  if (!days.length) return '<div class="empty">還沒有行程日期</div>';
-  if (!days.includes(S.jDate)) S.jDate = defaultJournalDate();
+  const pages = journalPages();
+  if (!journalDays().length) return '<div class="empty">還沒有行程日期</div>';
+  if (!pages.includes(S.jDate)) S.jDate = defaultJournalDate();
   const date = S.jDate;
+  const isTest = date === J_TEST;
   const today = madridNow().date;
   const posts = rows('日誌').filter((r) => r['日期'] === date && !truthy(r['已刪除']));
   const mine = journalOf(date, S.auth.user);
-  const chips = days.map((d) => {
-    const done = !!journalOf(d, S.auth.user);
-    const mark = done ? ' ✅' : d <= today && today >= days[0] ? '<span class="miss-dot" aria-label="還沒寫"></span>' : '';
-    return `<button class="chip${d === date ? ' on' : ''}" data-act="j-date" data-v="${d}">${md(d)}（${WD_NAME[weekdayOf(d)]}）${mark}</button>`;
-  }).join('');
+  const i = pages.indexOf(date);
+  const mark = isTest ? '' : mine ? ' ✅' : tripStarted() && date <= today ? '<span class="miss-dot" aria-label="還沒寫"></span>' : '';
+  const nav = `<div class="jn-nav">
+      <button class="jn-arrow" data-act="j-date" data-v="${esc(pages[i - 1] || '')}" ${i > 0 ? '' : 'disabled'} aria-label="前一天">‹</button>
+      <div class="jn-cur"><b>${esc(journalTitle(date))}</b>${mark}${isTest ? '<div class="muted small">隨便寫，練習用；出發後這頁會自動收起來</div>' : ''}</div>
+      <button class="jn-arrow" data-act="j-date" data-v="${esc(pages[i + 1] || '')}" ${i < pages.length - 1 ? '' : 'disabled'} aria-label="後一天">›</button>
+    </div>`;
+  // 用箭頭跳很遠的日子不方便，所以把還沒寫的日子列出來，一點就過去補寫
+  const missing = myMissingDays().filter((d) => d !== date);
+  const missHtml = missing.length ? `<div class="jn-miss"><span class="muted small">還沒寫：</span>${missing.map((d) => `<button class="chip" data-act="j-date" data-v="${d}">${md(d)}<span class="miss-dot"></span></button>`).join('')}</div>` : '';
   const wrote = (u) => posts.some((p) => p['作者'] === u);
   const progress = USERS.map((u) => `<span class="jp">${AVATAR[u]}${wrote(u) ? '✅' : '⏳'}</span>`).join('');
   let body;
   if (!mine) {
-    // 出發前大家還在測試，任何一天都能寫；出發後未來的日子先鎖住
-    body = date > today && today >= days[0]
-      ? '<div class="card jn-lock"><div class="big">⏳</div><p>這天還沒到，先別急 😆</p></div>'
+    // 正式的日子：出發前全部鎖住（請去試玩頁），出發後還沒到的日子也鎖住
+    body = !isTest && (!tripStarted() || date > today)
+      ? `<div class="card jn-lock"><div class="big">⏳</div><p>這天還沒到，先別急 😆</p>${tripStarted() ? '' : '<button class="btn" data-act="j-date" data-v="試玩">🧪 去試玩區練習</button>'}</div>`
       : `<div class="card jn-lock"><div class="big">🔒</div>
           <p><b>寫完你的，才看得到大家的</b></p>
           <p class="muted small">${posts.length ? `已經有 ${posts.length} 個人寫好了，好想偷看吧 👀` : '還沒有人寫，搶頭香！'}</p>
-          <button class="btn primary" data-act="add-journal">✍️ 寫 ${md(date)} 的日誌</button></div>`;
+          <button class="btn primary" data-act="add-journal">✍️ ${isTest ? '試寫一則' : `寫 ${md(date)} 的日誌`}</button></div>`;
   } else {
     const avg = posts.reduce((s, p) => s + Number(p['滿意度'] || 0), 0) / posts.length;
     const sorted = posts.slice().sort((a, b) => (b === mine) - (a === mine) || String(a['時間']).localeCompare(String(b['時間'])));
-    body = `<div class="jn-avg">今天平均滿意度 ❤️ ${avg.toFixed(1)}</div><div class="list">${sorted.map((r) => journalCard(r)).join('')}</div>`;
+    body = `<div class="jn-avg">${isTest ? '平均' : '今天平均'}滿意度 ❤️ ${avg.toFixed(1)}</div><div class="list">${sorted.map((r) => journalCard(r)).join('')}</div>`;
   }
   return `
-    <div class="dates"><div class="chips" data-sk="jdates">${chips}</div></div>
-    <div class="section-h"><h2>${esc(tripDayLabel(date))}</h2></div>
+    <div class="dates">${nav}</div>
+    ${missHtml}
     <div class="jn-progress"><span class="muted small">${posts.length}/${USERS.length} 寫了</span>${progress}</div>
     ${body}`;
 }
@@ -1118,7 +1131,7 @@ function journalSheet(id) {
   const date = r['日期'] || S.jDate || defaultJournalDate();
   const sat = hasSat(r) ? String(Number(r['滿意度'])) : '';
   openSheet(`
-    <h3>✍️ ${esc(tripDayLabel(date))}</h3>
+    <h3>✍️ ${esc(journalTitle(date))}</h3>
     <input type="hidden" id="f-jdate" value="${date}">
     <div class="field"><label>今日滿意度 <span class="muted small" id="sat-t">${sat === '' ? '點愛心評分' : sat + ' 顆'}</span></label>
       <div class="sat-pick">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="sat-h" data-act="sat" data-v="${n}">${sat !== '' && n <= Number(sat) ? '❤️' : '🤍'}</button>`).join('')}

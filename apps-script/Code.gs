@@ -251,7 +251,8 @@ function cleanValue_(field, value) {
 
 /** 新增日誌前檢查：日期、滿意度、四個欄位都要有；同一人同一天只能一則 */
 function checkJournal_(t, fields, user) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fields['日期'] || ''))) throw new Error('日期不對');
+  // 「試玩」是出發前給大家練習用的那一頁，沒有日期
+  if (fields['日期'] !== '試玩' && !/^\d{4}-\d{2}-\d{2}$/.test(String(fields['日期'] || ''))) throw new Error('日期不對');
   JOURNAL_FIELDS.concat('滿意度').forEach(f => {
     if (fields[f] === undefined || fields[f] === null || String(fields[f]).trim() === '') throw new Error('「' + f + '」要寫喔');
   });

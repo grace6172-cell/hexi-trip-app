@@ -339,3 +339,8 @@ details.card[open] summary { margin-bottom: 6px; }
 .jn-f { display: flex; flex-direction: column; gap: 2px; }
 .jn-l { font-size: 12px; font-weight: 700; color: var(--city); }
 .jn-top .jn-sat { font-size: 12px; letter-spacing: 0; }
+.jn-nav { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.jn-arrow { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 24px; line-height: 1; cursor: pointer; }
+.jn-arrow:disabled { opacity: .3; cursor: default; }
+.jn-cur { flex: 1; text-align: center; font-size: 15px; }
+.jn-miss { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; }
