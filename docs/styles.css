@@ -147,6 +147,7 @@ main { padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 96px); max-width:
 .banner .move-band { height: 30px; background: linear-gradient(90deg, var(--from), var(--to)); }
 .banner-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
 .banner .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.banner .day-edit { border: 0; background: color-mix(in srgb, var(--card) 70%, transparent); border-radius: 999px; font-size: 14px; padding: 2px 6px; margin-left: 4px; cursor: pointer; }
 .banner .city { font-size: 12px; font-weight: 700; color: var(--city); letter-spacing: .08em; }
 .banner .weather { font-size: 13px; color: var(--sub); text-align: right; }
 .banner .summary { font-size: 19px; font-weight: 700; line-height: 1.4; text-wrap: balance; }

@@ -3,7 +3,7 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.15-2';
+const APP_VERSION = '2026.10.15-3';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
@@ -194,13 +194,15 @@ function keepRecentWrites(data) {
   S.recent = (S.recent || []).filter((x) => Date.now() - x.at < RECENT_MS);
   S.recent.forEach((w) => {
     const list = data[w.sheet] || (data[w.sheet] = []);
-    const row = list.find((r) => r.ID === w.id);
+    const row = list.find((r) => rowKey(w.sheet, r) === w.id);
     if (row) Object.assign(row, w.fields || {});
     else if (w.row) list.push(Object.assign({}, w.row));
   });
 }
 
 const rows = (sheet) => (S.data && S.data[sheet]) || [];
+// 「每日」沒有 ID 欄，用日期當鍵
+const rowKey = (sheet, r) => (sheet === '每日' ? r['日期'] : r.ID);
 
 /**
  * 行程和預約的時間互相同步（同一天、同一個地點）。試算表那邊由 Apps Script 改，
@@ -218,7 +220,7 @@ const placeById = (id) => rows('地點').find((p) => p.ID === id);
 
 /** 先改畫面，再送出；失敗就還原 */
 async function updateRow(sheet, id, fields, okMsg, undoFields) {
-  const row = rows(sheet).find((r) => r.ID === id);
+  const row = rows(sheet).find((r) => rowKey(sheet, r) === id);
   if (!row) return;
   const before = {};
   Object.keys(fields).forEach((k) => { before[k] = row[k]; });
@@ -457,7 +459,7 @@ function tripView(info) {
   return `
     <div class="dates"><div class="chips" data-sk="dates">${dateChips}</div></div>
     <section class="banner">${band}<div class="banner-body">
-      <div class="row1"><span class="city">${esc(d['城市'] || '')}</span><span class="weather num">${wx}</span></div>
+      <div class="row1"><span class="city">${esc(d['城市'] || '')}</span><span class="weather num">${wx}${d['日期'] ? ` <button class="day-edit" data-act="edit-day" data-v="${esc(d['日期'])}" aria-label="編輯今天的說明">✏️</button>` : ''}</span></div>
       <div class="summary">${esc(d['Summary'] || '')}</div>
       ${d['提醒'] ? `<div class="memo">${esc(d['提醒'])}</div>` : ''}
       ${infoPills.length ? `<div class="info">${infoPills.join('')}</div>` : ''}
@@ -808,7 +810,7 @@ function shopDetailSheet(id) {
       ${r['來源'] ? `<div class="muted">來源：${esc(r['來源'])}${r['查證狀態'] ? `｜${esc(r['查證狀態'])}` : ''}</div>` : ''}
     </div>
     <div class="acts">
-      <button class="btn danger" data-act="shop-remove" data-v="${esc(id)}">移除</button>
+      <button class="btn danger" data-act="ask-remove" data-do="shop-remove" data-name="${esc(r['商品'])}" data-v="${esc(id)}">移除</button>
       <div class="right">${p ? `<a class="btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 地圖</a>` : ''}<button class="btn" data-act="sheet-close">關閉</button></div>
     </div>`);
 }
@@ -1006,6 +1008,13 @@ function openSheet(html, onMount) {
   if (onMount) onMount(root);
 }
 function closeSheet() { $('#sheet-root').innerHTML = ''; }
+/** 移除前的確認視窗；按「移除」才執行 act（item-remove／todo-remove／shop-remove） */
+function confirmRemove(name, act, id) {
+  openSheet(`
+    <h3>確認是否移除？</h3>
+    <p>「${esc(name || '這一筆')}」會從清單拿掉，其他人的 app 也會跟著消失。</p>
+    <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn danger" data-act="${esc(act)}" data-v="${esc(id)}">移除</button></div></div>`);
+}
 
 function editItemSheet(id) {
   const r = rows('行程').find((x) => x.ID === id);
@@ -1016,7 +1025,7 @@ function editItemSheet(id) {
     <div class="field"><label for="f-time">時間</label><input id="f-time" type="time" value="${esc(r['時間'] || '')}"></div>
     <div class="field"><label for="f-note">備註</label><textarea id="f-note">${esc(r['備註'] || '')}</textarea></div>
     <div class="acts">
-      <button class="btn danger" data-act="item-remove" data-v="${esc(id)}">移除</button>
+      <button class="btn danger" data-act="ask-remove" data-do="item-remove" data-name="${esc(r['名稱'])}" data-v="${esc(id)}">移除</button>
       <div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="item-save" data-v="${esc(id)}">儲存</button></div>
     </div>`);
 }
@@ -1043,7 +1052,7 @@ function todoSheet(id) {
       <div class="who-pick">${OWNERS.map((u) => `<button type="button" class="chip${(id ? (r['負責人'] || '') : S.auth.user) === u ? ' on' : ''}" data-act="pick" data-target="f-owner" data-v="${esc(u)}">${ownerName(u)}</button>`).join('')}</div>
       <input type="hidden" id="f-owner" value="${esc(id ? (r['負責人'] || '') : S.auth.user)}"></div>
     <div class="acts">
-      ${id ? `<button class="btn danger" data-act="todo-remove" data-v="${esc(id)}">移除</button>` : ''}
+      ${id ? `<button class="btn danger" data-act="ask-remove" data-do="todo-remove" data-name="${esc(r['項目'])}" data-v="${esc(id)}">移除</button>` : ''}
       <div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="todo-save" data-v="${esc(id || '')}">儲存</button></div>
     </div>`, () => { const t = $('#f-title'); if (t && !id) t.focus(); });
 }
@@ -1090,6 +1099,18 @@ function placeSheet(id, slot) {
         ${canAdd ? `<button class="btn primary" data-act="add-reco" data-v="${esc(p.ID)}" data-slot="${slot}">＋ 加進${slot}</button>` : ''}
       </div>
     </div>`);
+}
+
+/** 編輯行程最上面的每日說明：重點、提醒、住宿；城市和城市代碼會影響畫面邏輯，留在試算表改 */
+function dayEditSheet(date) {
+  const d = rows('每日').find((r) => r['日期'] === date);
+  if (!d) return;
+  openSheet(`
+    <h3>✏️ ${md(date)}（週${WD_NAME[weekdayOf(date)]}）${esc(d['城市'] || '')}</h3>
+    <div class="field"><label for="f-sum">今日重點</label><input id="f-sum" value="${esc(d['Summary'] || '')}" placeholder="例：聖家堂 → 聖保羅醫院"></div>
+    <div class="field"><label for="f-memo">提醒</label><textarea id="f-memo" placeholder="例：⚠ 聖家堂週日 10:30 才開">${esc(d['提醒'] || '')}</textarea></div>
+    <div class="field"><label for="f-stay">住宿</label><input id="f-stay" value="${esc(d['住宿'] || '')}" placeholder="例：KOTI"></div>
+    <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="day-save" data-v="${esc(date)}">儲存</button></div></div>`);
 }
 
 /** 編輯地點說明：只開放特色／營業提醒／交通／價位；名稱、座標、連結留在試算表改 */
@@ -1258,6 +1279,13 @@ document.addEventListener('click', async (e) => {
     case 'edit-item': editItemSheet(v); break;
     case 'place': placeSheet(v, el.dataset.slot); break;
     case 'edit-place': placeEditSheet(v); break;
+    case 'edit-day': dayEditSheet(v); break;
+    case 'day-save': {
+      const fields = { Summary: $('#f-sum').value.trim(), 提醒: $('#f-memo').value.trim(), 住宿: $('#f-stay').value.trim() };
+      closeSheet();
+      updateRow('每日', v, fields, '存好了');
+      break;
+    }
     case 'place-save': {
       const fields = { 特色: $('#f-feat').value.trim(), 營業提醒: $('#f-hours').value.trim(), 交通: $('#f-transit').value.trim(), 價位: $('#f-price').value };
       closeSheet();
@@ -1286,6 +1314,8 @@ document.addEventListener('click', async (e) => {
       closeSheet();
       break;
     }
+    // 所有「移除」都先跳確認視窗，確認後才真的移除
+    case 'ask-remove': confirmRemove(el.dataset.name, el.dataset.do, v); break;
     case 'item-remove': closeSheet(); updateRow('行程', v, { 已刪除: true }, '已移除', { 已刪除: false }); break;
     case 'heart': toggleHeart(v); break;
     case 'pf-city': S.pf.city = v; S.pf.region = '全部'; render(); break;

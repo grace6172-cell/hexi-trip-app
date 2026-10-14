@@ -49,6 +49,12 @@ const RULES = {
     addDefaults: { '完成': false, '已刪除': false },
     authorField: '建立者',
   },
+  // 每日沒有 ID 欄，用日期找列；城市、城市代碼影響畫面邏輯，不開放
+  '每日': {
+    idField: '日期',
+    add: [],
+    update: ['Summary', '提醒', '住宿'],
+  },
   '日誌': {
     idPrefix: 'J',
     add: ['類型', '內容'],
@@ -114,7 +120,7 @@ function logChange_(user, body, row) {
       sh.setFrozenRows(1);
     }
     const sheet = body.action === 'heart' ? '購物' : body.sheet;
-    const name = row ? (row['名稱'] || row['項目'] || row['商品'] || row['內容'] || '') : '';
+    const name = row ? (row['名稱'] || row['Summary'] || row['項目'] || row['商品'] || row['內容'] || '') : '';
     const detail = body.action === 'heart'
       ? (row && row[HEART_FIELD]) || '（沒人按）'
       : Object.keys(body.fields || {}).map((k) => k + '：' + body.fields[k]).join('；');
@@ -206,11 +212,11 @@ function lastIdRow_(t) {
 }
 
 function findRow_(t, id) {
-  const idCol = t.headers.indexOf('ID') + 1;
+  const idCol = t.headers.indexOf(t.rule.idField || 'ID') + 1;
   const last = t.sh.getLastRow();
   if (last < 2) throw new Error('找不到 ' + id);
   const ids = t.sh.getRange(2, idCol, last - 1, 1).getValues();
-  for (let i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(id)) return i + 2;
+  for (let i = 0; i < ids.length; i++) if (String(normalize_(ids[i][0])) === String(id)) return i + 2;
   throw new Error('找不到 ' + id);
 }
 
