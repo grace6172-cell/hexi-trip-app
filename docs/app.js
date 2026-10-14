@@ -3,7 +3,7 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.15-1';
+const APP_VERSION = '2026.10.15-2';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
@@ -659,6 +659,7 @@ function placeHtml(p, now) {
     <div class="place-top">
       <button class="check${visited ? ' on' : ''}" data-act="visited" data-v="${esc(p.ID)}" aria-label="已去過">${visited ? '✓' : ''}</button>
       <div class="nm">${esc(p['名稱'])}<small>${esc(p['類型'])}・${esc(p['區域'] || '')}</small></div>
+      <button class="icon-btn" data-act="edit-place" data-v="${esc(p.ID)}" aria-label="編輯說明">✏️</button>
       <a class="icon-btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener" aria-label="開 Google 地圖">🗺</a>
     </div>
     <div class="badges">
@@ -1084,10 +1085,28 @@ function placeSheet(id, slot) {
       <a class="btn" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 Google 地圖</a>
       ${p['官網'] ? `<a class="btn" href="${esc(p['官網'])}" target="_blank" rel="noopener">🌐 官網</a>` : ''}
       <div class="right">
+        <button class="btn" data-act="edit-place" data-v="${esc(p.ID)}">✏️ 編輯</button>
         <button class="btn" data-act="sheet-close">關閉</button>
         ${canAdd ? `<button class="btn primary" data-act="add-reco" data-v="${esc(p.ID)}" data-slot="${slot}">＋ 加進${slot}</button>` : ''}
       </div>
     </div>`);
+}
+
+/** 編輯地點說明：只開放特色／營業提醒／交通／價位；名稱、座標、連結留在試算表改 */
+function placeEditSheet(id) {
+  const p = placeById(id);
+  if (!p) return;
+  const price = p['價位'] || '';
+  openSheet(`
+    <h3>✏️ ${esc(p['名稱'])}</h3>
+    <div class="field"><label for="f-feat">特色</label><textarea id="f-feat" placeholder="例：必點烤章魚、可以跟店家要 alioli">${esc(p['特色'] || '')}</textarea></div>
+    <div class="field"><label for="f-hours">營業提醒</label><input id="f-hours" value="${esc(p['營業提醒'] || '')}" placeholder="例：週一公休、建議 18:00 前到"></div>
+    <div class="field"><label for="f-transit">交通</label><input id="f-transit" value="${esc(p['交通'] || '')}" placeholder="例：地鐵 L4 Barceloneta 站"></div>
+    <div class="field"><label>價位（以當地水平）</label>
+      <div class="who-pick">${['', '低', '中', '高'].map((v) => `<button type="button" class="chip${price === v ? ' on' : ''}" data-act="pick" data-target="f-price" data-v="${v}">${v || '不標'}</button>`).join('')}</div>
+      <input type="hidden" id="f-price" value="${esc(price)}"></div>
+    <div class="muted small">名稱、地址、座標要改請到試算表「地點」分頁</div>
+    <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="place-save" data-v="${esc(id)}">儲存</button></div></div>`);
 }
 
 /** 手動新增行程（Q09）：可以只寫名稱，也可以從口袋名單挑地點 */
@@ -1238,6 +1257,13 @@ document.addEventListener('click', async (e) => {
     }
     case 'edit-item': editItemSheet(v); break;
     case 'place': placeSheet(v, el.dataset.slot); break;
+    case 'edit-place': placeEditSheet(v); break;
+    case 'place-save': {
+      const fields = { 特色: $('#f-feat').value.trim(), 營業提醒: $('#f-hours').value.trim(), 交通: $('#f-transit').value.trim(), 價位: $('#f-price').value };
+      closeSheet();
+      updateRow('地點', v, fields, '存好了');
+      break;
+    }
     case 'add-item': itemAddSheet(); break;
     case 'item-add-save': {
       const pid = $('#f-place').value;
