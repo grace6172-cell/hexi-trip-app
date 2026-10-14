@@ -55,11 +55,11 @@ const RULES = {
     add: [],
     update: ['Summary', '提醒', '住宿'],
   },
-  // 日誌和留言：只有作者本人能改、能刪（ownerOnly）
+  // 日誌：每人每天一則，四個欄位＋滿意度都必填；日誌和留言只有作者本人能改、能刪（ownerOnly）
   '日誌': {
     idPrefix: 'J',
-    add: ['類型', '內容', '滿意度', '日期'],
-    update: ['類型', '內容', '滿意度', '日期', '已刪除'],
+    add: ['日期', '滿意度', '總結', '感謝', '投訴', '其他'],
+    update: ['滿意度', '總結', '感謝', '投訴', '其他', '已刪除'],
     addDefaults: { '已刪除': false },
     authorField: '作者',
     timeField: '時間',
@@ -79,7 +79,7 @@ const RULES = {
 
 const BOOL_FIELDS = ['已去過', '已買', '完成', '已刪除'];
 const STATUS_VALUES = ['未訂', '已訂', '已取消'];
-const JOURNAL_TYPES = ['📝 一句話總結今天', '😤 想投訴', '🙏 想感謝', '💬 其他想說的話'];
+const JOURNAL_FIELDS = ['總結', '感謝', '投訴', '其他'];
 const REACTIONS = ['❤️', '😂', '👍', '😮', '😢'];
 const HEART_FIELD = '按 ❤️ 的人';
 
@@ -135,7 +135,7 @@ function logChange_(user, body, row) {
       sh.setFrozenRows(1);
     }
     const sheet = body.action === 'heart' ? '購物' : body.action === 'react' ? '日誌' : body.sheet;
-    const name = row ? (row['名稱'] || row['Summary'] || row['項目'] || row['商品'] || row['內容'] || '') : '';
+    const name = row ? (row['名稱'] || row['Summary'] || row['總結'] || row['項目'] || row['商品'] || row['內容'] || '') : '';
     const detail = body.action === 'heart' ? (row && row[HEART_FIELD]) || '（沒人按）'
       : body.action === 'react' ? body.emoji + '：' + ((row && row['反應']) || '（沒人回應）')
       : Object.keys(body.fields || {}).map((k) => k + '：' + body.fields[k]).join('；');
@@ -238,20 +238,35 @@ function findRow_(t, id) {
 function cleanValue_(field, value) {
   if (BOOL_FIELDS.indexOf(field) >= 0) return value === true || value === 'TRUE' || value === 'true';
   if (field === '狀態' && STATUS_VALUES.indexOf(value) < 0) throw new Error('狀態只能是：' + STATUS_VALUES.join('、'));
-  if (field === '類型' && JOURNAL_TYPES.indexOf(value) >= 0) return value;
   if (field === '滿意度') {
     if (value === '' || value === null || value === undefined) return '';
     const n = Math.round(Number(value));
     if (!(n >= 0 && n <= 5)) throw new Error('滿意度只能是 0 到 5');
     return n;
   }
-  return value === null || value === undefined ? '' : String(value).slice(0, 2000);
+  // 日誌不限字數（試算表一格上限 5 萬字，這裡留 2 萬當保險）
+  const max = JOURNAL_FIELDS.indexOf(field) >= 0 ? 20000 : 2000;
+  return value === null || value === undefined ? '' : String(value).slice(0, max);
+}
+
+/** 新增日誌前檢查：日期、滿意度、四個欄位都要有；同一人同一天只能一則 */
+function checkJournal_(t, fields, user) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fields['日期'] || ''))) throw new Error('日期不對');
+  JOURNAL_FIELDS.concat('滿意度').forEach(f => {
+    if (fields[f] === undefined || fields[f] === null || String(fields[f]).trim() === '') throw new Error('「' + f + '」要寫喔');
+  });
+  const last = t.sh.getLastRow();
+  if (last < 2) return;
+  const cDate = t.headers.indexOf('日期'), cAuthor = t.headers.indexOf('作者'), cDel = t.headers.indexOf('已刪除');
+  const dup = t.sh.getRange(2, 1, last - 1, t.headers.length).getValues().some(r =>
+    normalize_(r[cDate]) === fields['日期'] && r[cAuthor] === user && r[cDel] !== true);
+  if (dup) throw new Error('你這天已經寫過了，請直接編輯那一則');
 }
 
 function addRow_(sheetName, fields, user) {
   const t = getTable_(sheetName);
   if (!t.rule.add.length) throw new Error('這個分頁不能新增');
-  if (sheetName === '日誌' && JOURNAL_TYPES.indexOf(fields['類型']) < 0) throw new Error('日誌類型不對');
+  if (sheetName === '日誌') checkJournal_(t, fields, user);
 
   const row = {};
   Object.assign(row, t.rule.addDefaults || {});
@@ -282,7 +297,7 @@ function updateRow_(sheetName, id, fields, user) {
     const author = t.sh.getRange(r, t.headers.indexOf(t.rule.authorField) + 1).getValue();
     if (author !== user) throw new Error('只有 ' + author + ' 本人可以修改這則');
   }
-  if (sheetName === '日誌' && '類型' in fields && JOURNAL_TYPES.indexOf(fields['類型']) < 0) throw new Error('日誌類型不對');
+  if (sheetName === '日誌' && !fields['已刪除']) JOURNAL_FIELDS.concat('滿意度').forEach(f => { if (f in fields && String(fields[f]).trim() === '') throw new Error('「' + f + '」要寫喔'); });
   keys.forEach(f => {
     if (t.rule.update.indexOf(f) < 0) throw new Error('「' + f + '」不能在 app 裡修改');
     const c = t.headers.indexOf(f);

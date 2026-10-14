@@ -3,7 +3,7 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.15-5';
+const APP_VERSION = '2026.10.15-6';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
@@ -373,10 +373,9 @@ function render() {
     ${S.tab === 'prep' && S.prepTab === 'todo' ? '<button class="fab" data-act="add-todo">＋ 新增待辦</button>' : ''}
     ${S.tab === 'prep' && S.prepTab === 'shop' ? '<button class="fab" data-act="add-shop">＋ 新增想買的</button>' : ''}
     ${S.tab === 'trip' ? '<button class="fab" data-act="add-item">＋ 新增行程</button>' : ''}
-    ${S.tab === 'journal' ? '<button class="fab" data-act="add-journal">＋ 寫日誌</button>' : ''}
     <nav class="tabbar">
       ${[['trip', '📅', '行程'], ['places', '📍', '地點'], ['book', '🎫', '預約'], ['prep', '🧳', '準備'], ['journal', '📝', '日誌']]
-        .map(([k, ic, l]) => `<button class="tab${S.tab === k ? ' on' : ''}" data-act="tab" data-v="${k}"><span class="ic">${ic}</span>${l}</button>`).join('')}
+        .map(([k, ic, l]) => `<button class="tab${S.tab === k ? ' on' : ''}" data-act="tab" data-v="${k}"><span class="ic">${ic}</span>${k === 'journal' && myMissingDays().length ? '<span class="tab-dot" aria-label="還有日誌沒寫"></span>' : ''}${l}</button>`).join('')}
     </nav>`;
   paintTiles();
   app.querySelectorAll('.chips[data-sk]').forEach((el) => {
@@ -1002,8 +1001,15 @@ function phraseSheet(i) {
 }
 
 /* ----- 日誌 ----- */
-const J_TYPES = ['📝 一句話總結今天', '😤 想投訴', '🙏 想感謝', '💬 其他想說的話'];
-const J_SHORT = { '📝 一句話總結今天': '📝 總結', '😤 想投訴': '😤 投訴', '🙏 想感謝': '🙏 感謝', '💬 其他想說的話': '💬 其他' };
+// 每人每天一則；四個欄位都必填（試算表欄名：總結／感謝／投訴／其他，畫面上用逗趣的名字）
+const J_FIELDS = [
+  ['總結', '🎬 今日金句', '幫今天下個標題，越浮誇越好'],
+  ['感謝', '💐 感恩頒獎台', '今天想頒獎給誰？謝謝誰罩你？'],
+  ['投訴', '📢 客訴專線', '不爽的通通說出來，客服（並沒有）會處理'],
+  ['其他', '🫧 碎碎念時間', '花絮、八卦、明天的願望都可以'],
+];
+// 回程那天的「總結」改成整趟旅程的總結
+const LAST_DAY_SUMMARY = ['🏁 整趟旅程金句', '這幾天用一句話總結？'];
 const REACTIONS = ['❤️', '😂', '👍', '😮', '😢'];
 const nowStamp = () => { const n = madridNow(); return `${n.date} ${String(Math.floor(n.min / 60)).padStart(2, '0')}:${String(n.min % 60).padStart(2, '0')}`; };
 const stampLabel = (s) => { const [d, t] = String(s || '').split(' '); return d ? `${md(d)}${t ? ' ' + t : ''}` : ''; };
@@ -1011,7 +1017,7 @@ const hasSat = (r) => r['滿意度'] !== '' && r['滿意度'] !== null && r['滿
 const satHearts = (n) => '❤️'.repeat(n) + '🤍'.repeat(5 - n);
 function reactMap(r) { try { return JSON.parse(r['反應'] || '{}') || {}; } catch (err) { return {}; } }
 
-/** 10/25（日）・Day 4・巴塞隆納；旅程以外的日子標「出發前」「回家後」 */
+/** 10/25（日）・Day 4・巴塞隆納 */
 function tripDayLabel(date) {
   if (!date) return '';
   const days = rows('每日').map((r) => r['日期']).sort();
@@ -1020,17 +1026,60 @@ function tripDayLabel(date) {
   if (i >= 0) return `${base}・Day ${i + 1}・${rows('每日').find((r) => r['日期'] === date)['城市'] || ''}`;
   return base + (days.length && date < days[0] ? '・出發前' : '・回家後');
 }
+/** 要寫日誌的日子：抵達阿姆那天到回程那天（出發日不用寫） */
+const journalDays = () => rows('每日').map((r) => r['日期']).sort().slice(1);
+const journalOf = (date, user) => rows('日誌').find((r) => r['日期'] === date && r['作者'] === user && !truthy(r['已刪除']));
+function fieldLabel(f, date) {
+  const def = J_FIELDS.find((x) => x[0] === f);
+  const days = journalDays();
+  return f === '總結' && date === days[days.length - 1] ? LAST_DAY_SUMMARY : [def[1], def[2]];
+}
+/** 今天以前（含今天）我還沒寫的日子；用來在分頁上標紅點 */
+function myMissingDays() {
+  const today = madridNow().date;
+  return journalDays().filter((d) => d <= today && !journalOf(d, S.auth.user));
+}
+function defaultJournalDate() {
+  const days = journalDays();
+  const today = madridNow().date;
+  if (days.includes(today)) return today;
+  return today < days[0] ? days[0] : days[days.length - 1];
+}
 
 function journalView() {
-  const f = S.jFilter || 'all';
-  const all = rows('日誌').filter((r) => !truthy(r['已刪除']));
-  const list = all.filter((r) => f === 'all' || (f === 'mine' ? r['作者'] === S.auth.user : r['類型'] === f))
-    .sort((a, b) => String(b['時間']).localeCompare(String(a['時間'])) || String(b.ID).localeCompare(String(a.ID)));
-  const chips = [['all', '全部'], ...J_TYPES.map((t) => [t, J_SHORT[t]]), ['mine', '只看我的']];
+  const days = journalDays();
+  if (!days.length) return '<div class="empty">還沒有行程日期</div>';
+  if (!days.includes(S.jDate)) S.jDate = defaultJournalDate();
+  const date = S.jDate;
+  const today = madridNow().date;
+  const posts = rows('日誌').filter((r) => r['日期'] === date && !truthy(r['已刪除']));
+  const mine = journalOf(date, S.auth.user);
+  const chips = days.map((d) => {
+    const done = !!journalOf(d, S.auth.user);
+    const mark = done ? ' ✅' : d <= today && today >= days[0] ? '<span class="miss-dot" aria-label="還沒寫"></span>' : '';
+    return `<button class="chip${d === date ? ' on' : ''}" data-act="j-date" data-v="${d}">${md(d)}（${WD_NAME[weekdayOf(d)]}）${mark}</button>`;
+  }).join('');
+  const wrote = (u) => posts.some((p) => p['作者'] === u);
+  const progress = USERS.map((u) => `<span class="jp">${AVATAR[u]}${wrote(u) ? '✅' : '⏳'}</span>`).join('');
+  let body;
+  if (!mine) {
+    // 出發前大家還在測試，任何一天都能寫；出發後未來的日子先鎖住
+    body = date > today && today >= days[0]
+      ? '<div class="card jn-lock"><div class="big">⏳</div><p>這天還沒到，先別急 😆</p></div>'
+      : `<div class="card jn-lock"><div class="big">🔒</div>
+          <p><b>寫完你的，才看得到大家的</b></p>
+          <p class="muted small">${posts.length ? `已經有 ${posts.length} 個人寫好了，好想偷看吧 👀` : '還沒有人寫，搶頭香！'}</p>
+          <button class="btn primary" data-act="add-journal">✍️ 寫 ${md(date)} 的日誌</button></div>`;
+  } else {
+    const avg = posts.reduce((s, p) => s + Number(p['滿意度'] || 0), 0) / posts.length;
+    const sorted = posts.slice().sort((a, b) => (b === mine) - (a === mine) || String(a['時間']).localeCompare(String(b['時間'])));
+    body = `<div class="jn-avg">今天平均滿意度 ❤️ ${avg.toFixed(1)}</div><div class="list">${sorted.map((r) => journalCard(r)).join('')}</div>`;
+  }
   return `
-    <div class="section-h"><h2>日誌 ${all.length} 則</h2><span class="muted small">想說什麼都寫這裡</span></div>
-    <div class="chips" data-sk="jf">${chips.map(([k, l]) => `<button class="chip${f === k ? ' on' : ''}" data-act="j-filter" data-v="${esc(k)}">${esc(l)}</button>`).join('')}</div>
-    <div class="list">${list.map((r) => journalCard(r)).join('') || '<div class="empty">還沒有人寫，來當第一個 ✍️</div>'}</div>`;
+    <div class="dates"><div class="chips" data-sk="jdates">${chips}</div></div>
+    <div class="section-h"><h2>${esc(tripDayLabel(date))}</h2></div>
+    <div class="jn-progress"><span class="muted small">${posts.length}/${USERS.length} 寫了</span>${progress}</div>
+    ${body}`;
 }
 
 function journalCard(r) {
@@ -1041,12 +1090,11 @@ function journalCard(r) {
   const sat = hasSat(r) ? Number(r['滿意度']) : null;
   return `<article class="card jn">
     <div class="jn-top">
-      <span class="jn-who">${esc(who(r['作者']))}</span><span class="pill mute">${esc(r['類型'])}</span>
+      <span class="jn-who">${esc(who(r['作者']))}</span>
+      ${sat !== null ? `<span class="jn-sat" aria-label="滿意度 ${sat} 顆">${satHearts(sat)}</span>` : ''}
       ${mine ? `<button class="icon-btn jn-edit" data-act="edit-journal" data-v="${esc(r.ID)}" aria-label="編輯">✏️</button>` : ''}
     </div>
-    <div class="jn-day">${esc(tripDayLabel(r['日期']))}</div>
-    ${sat !== null ? `<div class="jn-sat" aria-label="滿意度 ${sat} 顆">${satHearts(sat)}</div>` : ''}
-    <div class="jn-body">${esc(r['內容'])}</div>
+    ${J_FIELDS.map(([f]) => (r[f] ? `<div class="jn-f"><div class="jn-l">${esc(fieldLabel(f, r['日期'])[0])}</div><div class="jn-body">${esc(r[f])}</div></div>` : '')).join('')}
     <div class="jn-meta">${esc(stampLabel(r['時間']))}${r['修改時間'] ? '・已編輯' : ''}</div>
     <div class="jn-react">
       ${REACTIONS.map((e) => {
@@ -1063,31 +1111,24 @@ function journalCard(r) {
   </article>`;
 }
 
-/** 寫日誌／編輯日誌（只有作者本人會看到編輯） */
+/** 寫／編輯某一天的日誌：四個欄位＋滿意度都必填 */
 function journalSheet(id) {
   const r = id ? rows('日誌').find((x) => x.ID === id) : {};
   if (!r) return;
-  const type = r['類型'] || J_TYPES[0];
-  const days = rows('每日').map((d) => d['日期']).sort();
-  const today = madridNow().date;
-  const date = r['日期'] || today;
-  const opts = days.includes(date) ? days : [date, ...days];
+  const date = r['日期'] || S.jDate || defaultJournalDate();
   const sat = hasSat(r) ? String(Number(r['滿意度'])) : '';
   openSheet(`
-    <h3>${id ? '編輯日誌' : '寫日誌 ✍️'}</h3>
-    <div class="field"><label>類型</label>
-      <div class="who-pick">${J_TYPES.map((t) => `<button type="button" class="chip${t === type ? ' on' : ''}" data-act="pick" data-target="f-jtype" data-v="${esc(t)}">${esc(t)}</button>`).join('')}</div>
-      <input type="hidden" id="f-jtype" value="${esc(type)}"></div>
-    <div class="field"><label for="f-jdate">哪一天</label><select id="f-jdate">${opts.map((d) => `<option value="${d}"${d === date ? ' selected' : ''}>${esc(tripDayLabel(d))}</option>`).join('')}</select></div>
-    <div class="field"><label>滿意度 <span class="muted small" id="sat-t">${sat === '' ? '不評' : sat + ' 顆'}</span></label>
+    <h3>✍️ ${esc(tripDayLabel(date))}</h3>
+    <input type="hidden" id="f-jdate" value="${date}">
+    <div class="field"><label>今日滿意度 <span class="muted small" id="sat-t">${sat === '' ? '點愛心評分' : sat + ' 顆'}</span></label>
       <div class="sat-pick">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="sat-h" data-act="sat" data-v="${n}">${sat !== '' && n <= Number(sat) ? '❤️' : '🤍'}</button>`).join('')}
-        <button type="button" class="chip" data-act="sat" data-v="0">0 顆</button><button type="button" class="chip" data-act="sat" data-v="">不評</button></div>
+        <button type="button" class="chip" data-act="sat" data-v="0">0 顆，慘</button></div>
       <input type="hidden" id="f-sat" value="${sat}"></div>
-    <div class="field"><label for="f-jtext">想說的</label><textarea id="f-jtext" rows="4" placeholder="例：今天走了 2 萬步，腳已經不是我的了">${esc(r['內容'] || '')}</textarea></div>
+    ${J_FIELDS.map(([f]) => { const [label, hint] = fieldLabel(f, date); return `<div class="field"><label for="f-j-${f}">${esc(label)}</label><textarea id="f-j-${f}" rows="3" placeholder="${esc(hint)}">${esc(r[f] || '')}</textarea></div>`; }).join('')}
     <div class="acts">
-      ${id ? `<button class="btn danger" data-act="ask-remove" data-do="journal-remove" data-name="${esc(String(r['內容']).slice(0, 20))}" data-v="${esc(id)}">移除</button>` : ''}
-      <div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="journal-save" data-v="${esc(id || '')}">${id ? '儲存' : '送出'}</button></div>
-    </div>`, () => { const t = $('#f-jtext'); if (t && !id) t.focus(); });
+      ${id ? `<button class="btn danger" data-act="ask-remove" data-do="journal-remove" data-name="${esc(md(date))} 的日誌" data-v="${esc(id)}">移除</button>` : ''}
+      <div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="journal-save" data-v="${esc(id || '')}">${id ? '儲存' : '送出，偷看大家的 👀'}</button></div>
+    </div>`);
 }
 
 /** 誰按了哪個表情（卡片上只顯示數字） */
@@ -1533,23 +1574,32 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'phrase': phraseSheet(Number(v)); break;
-    case 'j-filter': S.jFilter = v; render(); break;
-    case 'add-journal': journalSheet(null); break;
+    case 'j-date': S.jDate = v; render(); break;
+    case 'add-journal': {
+      // 同一天已經寫過就直接打開那一則
+      const mine = journalOf(S.jDate, S.auth.user);
+      journalSheet(mine ? mine.ID : null);
+      break;
+    }
     case 'edit-journal': journalSheet(v); break;
     case 'sat': {
       $('#f-sat').value = v;
-      const n = v === '' ? 0 : Number(v);
+      const n = Number(v);
       document.querySelectorAll('.sat-h').forEach((h) => { h.textContent = Number(h.dataset.v) <= n ? '❤️' : '🤍'; });
-      $('#sat-t').textContent = v === '' ? '不評' : `${n} 顆`;
+      $('#sat-t').textContent = `${n} 顆`;
       break;
     }
     case 'journal-save': {
-      const fields = { 類型: $('#f-jtype').value, 日期: $('#f-jdate').value, 滿意度: $('#f-sat').value, 內容: $('#f-jtext').value.trim() };
-      if (!fields['內容']) { $('#f-jtext').focus(); break; }
+      const fields = { 滿意度: $('#f-sat').value };
+      J_FIELDS.forEach(([f]) => { fields[f] = $('#f-j-' + f).value.trim(); });
+      if (fields['滿意度'] === '') { toast('先點愛心給今天打個分數 ❤️'); break; }
+      const empty = J_FIELDS.find(([f]) => !fields[f]);
+      if (empty) { toast(`「${fieldLabel(empty[0], $('#f-jdate').value)[0]}」還沒寫喔`); $('#f-j-' + empty[0]).focus(); break; }
+      const date = $('#f-jdate').value;
       closeSheet();
       // 修改時間由 Apps Script 寫；這裡只先在畫面標「已編輯」
       if (v) { const jr = rows('日誌').find((x) => x.ID === v); if (jr) jr['修改時間'] = nowStamp(); updateRow('日誌', v, fields, '存好了'); }
-      else addRow('日誌', fields, '寫好了 ✍️');
+      else addRow('日誌', Object.assign({ 日期: date }, fields), '寫好了！可以偷看大家的了 👀');
       break;
     }
     case 'journal-remove': closeSheet(); updateRow('日誌', v, { 已刪除: true }, '已移除', { 已刪除: false }); break;

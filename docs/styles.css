@@ -326,3 +326,16 @@ details.card[open] summary { margin-bottom: 6px; }
 .cmt-x { position: absolute; right: 0; top: 0; border: 0; background: none; color: var(--sub); font-size: 13px; padding: 2px 6px; cursor: pointer; }
 .sat-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .sat-h { border: 0; background: none; font-size: 26px; padding: 2px; cursor: pointer; line-height: 1; }
+.tab { position: relative; }
+.tab-dot { position: absolute; top: 6px; left: calc(50% + 8px); width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+.miss-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); margin-left: 4px; vertical-align: middle; }
+.jn-progress { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -4px 0 10px; }
+.jp { font-size: 14px; }
+.jn-lock { text-align: center; padding: 24px 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.jn-lock .big { font-size: 36px; }
+.jn-lock p { margin: 0; }
+.jn-lock .btn { margin-top: 8px; }
+.jn-avg { font-weight: 700; margin-bottom: 8px; }
+.jn-f { display: flex; flex-direction: column; gap: 2px; }
+.jn-l { font-size: 12px; font-weight: 700; color: var(--city); }
+.jn-top .jn-sat { font-size: 12px; letter-spacing: 0; }
