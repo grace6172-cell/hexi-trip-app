@@ -3,13 +3,16 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.13-1';
+const APP_VERSION = '2026.10.15-1';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
 const OLD_NAMES = { 妹妹: '淇淇', 簡: '婷婷', 十一: '宜宜', 朱: '慧慧' };
 /** 名字前面加上動物圖示；試算表裡只存名字 */
 const who = (u) => (u ? (AVATAR[u] || '') + u : '');
+// 待辦負責人選項：空白＝大家一起、「未定」＝還沒決定誰（Q23）
+const OWNERS = ['', ...USERS, '未定'];
+const ownerName = (u) => (!u ? '大家' : u === '未定' ? '🤔未定' : who(u));
 const SLOTS = ['早上', '中午', '下午', '晚上'];
 const SLOT_MIN = { 早上: 600, 中午: 780, 下午: 960, 晚上: 1200 };
 const TYPES = ['景點', '餐廳', '酒吧', '甜點', '咖啡廳', '麵包店', '購物', '住宿'];
@@ -736,7 +739,7 @@ function prepView() {
         <button class="body" data-act="edit-todo" data-v="${esc(r.ID)}">
           <div class="t">${esc(r['項目'])}</div>${r['說明'] ? `<div class="d">${esc(r['說明'])}</div>` : ''}
         </button>
-        <button class="owner${r['負責人'] === S.auth.user ? ' me' : ''}" data-act="owner" data-v="${esc(r.ID)}" aria-label="換負責人">${esc(r['負責人'] ? who(r['負責人']) : '大家')} ▾</button>
+        <button class="owner${r['負責人'] === S.auth.user ? ' me' : ''}" data-act="owner" data-v="${esc(r.ID)}" aria-label="換負責人">${esc(ownerName(r['負責人']))} ▾</button>
       </div>`;
     }).join('') || '<div class="empty">沒有待辦</div>'}</div>`;
 }
@@ -1036,7 +1039,7 @@ function todoSheet(id) {
     <div class="field"><label for="f-title">要做什麼</label><input id="f-title" value="${esc(r['項目'] || '')}" placeholder="例：買 eSIM"></div>
     <div class="field"><label for="f-desc">說明</label><textarea id="f-desc">${esc(r['說明'] || '')}</textarea></div>
     <div class="field"><label>負責人</label>
-      <div class="who-pick">${['', ...USERS].map((u) => `<button type="button" class="chip${(id ? (r['負責人'] || '') : S.auth.user) === u ? ' on' : ''}" data-act="pick" data-target="f-owner" data-v="${esc(u)}">${u ? who(u) : '大家'}</button>`).join('')}</div>
+      <div class="who-pick">${OWNERS.map((u) => `<button type="button" class="chip${(id ? (r['負責人'] || '') : S.auth.user) === u ? ' on' : ''}" data-act="pick" data-target="f-owner" data-v="${esc(u)}">${ownerName(u)}</button>`).join('')}</div>
       <input type="hidden" id="f-owner" value="${esc(id ? (r['負責人'] || '') : S.auth.user)}"></div>
     <div class="acts">
       ${id ? `<button class="btn danger" data-act="todo-remove" data-v="${esc(id)}">移除</button>` : ''}
@@ -1049,7 +1052,7 @@ function ownerSheet(id) {
   if (!r) return;
   openSheet(`
     <h3>誰負責「${esc(r['項目'])}」？</h3>
-    <div class="who-grid">${['', ...USERS].map((u) => `<button class="${(r['負責人'] || '') === u ? 'on' : ''}" data-act="owner-set" data-id="${esc(id)}" data-v="${esc(u)}">${u ? who(u) : '大家'}</button>`).join('')}</div>
+    <div class="who-grid">${OWNERS.map((u) => `<button class="${(r['負責人'] || '') === u ? 'on' : ''}" data-act="owner-set" data-id="${esc(id)}" data-v="${esc(u)}">${ownerName(u)}</button>`).join('')}</div>
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button></div></div>`);
 }
 /** 地點詳細（行程的「看更多」、附近推薦點名稱）（Q13） */
@@ -1241,10 +1244,13 @@ document.addEventListener('click', async (e) => {
       const p = pid ? placeById(pid) : null;
       const name = $('#f-name').value.trim() || (p ? p['名稱'] : '');
       if (!name) { $('#f-name').focus(); break; }
+      // 欄位要在 closeSheet() 之前讀完，關掉後元素就不在了（Q22）
       const slot = $('#f-slot').value;
+      const time = $('#f-time').value;
+      const note = $('#f-note').value.trim();
       const n = rows('行程').filter((r) => r['日期'] === S.date).length + 1;
       closeSheet();
-      addRow('行程', { 日期: S.date, 時段: slot, 時間: $('#f-time').value, '地點 ID': pid, 名稱: name, 備註: $('#f-note').value.trim(), 排序: n }, `已加進 ${md(S.date)} ${slot}`);
+      addRow('行程', { 日期: S.date, 時段: slot, 時間: time, '地點 ID': pid, 名稱: name, 備註: note, 排序: n }, `已加進 ${md(S.date)} ${slot}`);
       break;
     }
     case 'item-save': {
@@ -1285,7 +1291,7 @@ document.addEventListener('click', async (e) => {
     case 'owner': ownerSheet(v); break;
     case 'owner-set': {
       closeSheet();
-      updateRow('待辦', el.dataset.id, { 負責人: v }, v ? `改由 ${v} 負責` : '改成大家一起');
+      updateRow('待辦', el.dataset.id, { 負責人: v }, !v ? '改成大家一起' : v === '未定' ? '改成未定' : `改由 ${v} 負責`);
       break;
     }
     case 'book-save': {
