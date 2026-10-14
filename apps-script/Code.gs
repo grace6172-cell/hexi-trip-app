@@ -13,7 +13,7 @@ const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const OLD_NAMES = { 妹妹: '淇淇', 簡: '婷婷', 十一: '宜宜', 朱: '慧慧' };
 
 // 讀取時回傳的分頁（「說明」不給 app）
-const READ_SHEETS = ['每日', '行程', '地點', '預約', '購物', '待辦', '日誌', '工具箱'];
+const READ_SHEETS = ['每日', '行程', '地點', '預約', '購物', '待辦', '日誌', '日誌留言', '工具箱'];
 
 // 每個分頁 app 可以做的事：add 時可填的欄位、update 時可改的欄位
 const RULES = {
@@ -55,18 +55,32 @@ const RULES = {
     add: [],
     update: ['Summary', '提醒', '住宿'],
   },
+  // 日誌和留言：只有作者本人能改、能刪（ownerOnly）
   '日誌': {
     idPrefix: 'J',
-    add: ['類型', '內容'],
-    update: [],
+    add: ['類型', '內容', '滿意度', '日期'],
+    update: ['類型', '內容', '滿意度', '日期', '已刪除'],
+    addDefaults: { '已刪除': false },
     authorField: '作者',
     timeField: '時間',
+    editedField: '修改時間',
+    ownerOnly: true,
+  },
+  '日誌留言': {
+    idPrefix: 'C',
+    add: ['日誌 ID', '內容'],
+    update: ['內容', '已刪除'],
+    addDefaults: { '已刪除': false },
+    authorField: '作者',
+    timeField: '時間',
+    ownerOnly: true,
   },
 };
 
 const BOOL_FIELDS = ['已去過', '已買', '完成', '已刪除'];
 const STATUS_VALUES = ['未訂', '已訂', '已取消'];
-const JOURNAL_TYPES = ['💬 想說的話', '😤 想投訴', '💭 心情'];
+const JOURNAL_TYPES = ['📝 一句話總結今天', '😤 想投訴', '🙏 想感謝', '💬 其他想說的話'];
+const REACTIONS = ['❤️', '😂', '👍', '😮', '😢'];
 const HEART_FIELD = '按 ❤️ 的人';
 
 /* ---------------- 入口 ---------------- */
@@ -94,6 +108,7 @@ function doPost(e) {
         case 'add':    row = addRow_(body.sheet, body.fields || {}, user); break;
         case 'update': row = updateRow_(body.sheet, body.id, body.fields || {}, user); break;
         case 'heart':  row = toggleHeart_(body.id, user); break;
+        case 'react':  row = toggleReaction_(body.id, body.emoji, user); break;
         default: throw new Error('不支援的動作：' + body.action);
       }
       logChange_(user, body, row);
@@ -108,7 +123,7 @@ function doPost(e) {
  * 試算表的版本記錄只會顯示部署者（Grace），
  * 所以每次從 app 寫入都另外記一筆：誰、什麼時候、改了哪裡。 */
 const LOG_SHEET = '異動紀錄';
-const ACTION_NAME = { add: '新增', update: '修改', heart: '按 ❤️' };
+const ACTION_NAME = { add: '新增', update: '修改', heart: '按 ❤️', react: '回應' };
 
 function logChange_(user, body, row) {
   try {
@@ -119,10 +134,10 @@ function logChange_(user, body, row) {
       sh.appendRow(['時間', '誰', '動作', '分頁', 'ID', '項目', '內容']);
       sh.setFrozenRows(1);
     }
-    const sheet = body.action === 'heart' ? '購物' : body.sheet;
+    const sheet = body.action === 'heart' ? '購物' : body.action === 'react' ? '日誌' : body.sheet;
     const name = row ? (row['名稱'] || row['Summary'] || row['項目'] || row['商品'] || row['內容'] || '') : '';
-    const detail = body.action === 'heart'
-      ? (row && row[HEART_FIELD]) || '（沒人按）'
+    const detail = body.action === 'heart' ? (row && row[HEART_FIELD]) || '（沒人按）'
+      : body.action === 'react' ? body.emoji + '：' + ((row && row['反應']) || '（沒人回應）')
       : Object.keys(body.fields || {}).map((k) => k + '：' + body.fields[k]).join('；');
     sh.appendRow([
       Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd HH:mm:ss'),
@@ -224,6 +239,12 @@ function cleanValue_(field, value) {
   if (BOOL_FIELDS.indexOf(field) >= 0) return value === true || value === 'TRUE' || value === 'true';
   if (field === '狀態' && STATUS_VALUES.indexOf(value) < 0) throw new Error('狀態只能是：' + STATUS_VALUES.join('、'));
   if (field === '類型' && JOURNAL_TYPES.indexOf(value) >= 0) return value;
+  if (field === '滿意度') {
+    if (value === '' || value === null || value === undefined) return '';
+    const n = Math.round(Number(value));
+    if (!(n >= 0 && n <= 5)) throw new Error('滿意度只能是 0 到 5');
+    return n;
+  }
   return value === null || value === undefined ? '' : String(value).slice(0, 2000);
 }
 
@@ -257,12 +278,21 @@ function updateRow_(sheetName, id, fields, user) {
   const r = findRow_(t, id);
   const keys = Object.keys(fields);
   if (!keys.length) throw new Error('沒有要更新的欄位');
+  if (t.rule.ownerOnly) {
+    const author = t.sh.getRange(r, t.headers.indexOf(t.rule.authorField) + 1).getValue();
+    if (author !== user) throw new Error('只有 ' + author + ' 本人可以修改這則');
+  }
+  if (sheetName === '日誌' && '類型' in fields && JOURNAL_TYPES.indexOf(fields['類型']) < 0) throw new Error('日誌類型不對');
   keys.forEach(f => {
     if (t.rule.update.indexOf(f) < 0) throw new Error('「' + f + '」不能在 app 裡修改');
     const c = t.headers.indexOf(f);
     if (c < 0) throw new Error('找不到欄位：' + f);
     t.sh.getRange(r, c + 1).setValue(cleanValue_(f, fields[f]));
   });
+  if (t.rule.editedField && !('已刪除' in fields)) {
+    const c = t.headers.indexOf(t.rule.editedField);
+    if (c >= 0) t.sh.getRange(r, c + 1).setValue(Utilities.formatDate(new Date(), 'Europe/Madrid', 'yyyy-MM-dd HH:mm'));
+  }
   if (t.rule.updaterField) {
     const c = t.headers.indexOf(t.rule.updaterField);
     if (c >= 0) t.sh.getRange(r, c + 1).setValue(user);
@@ -300,6 +330,22 @@ function toggleHeart_(id, user) {
   const i = people.indexOf(user);
   if (i >= 0) people.splice(i, 1); else people.push(user);
   cell.setValue(people.join('、'));
+  return rowObject_(t, r);
+}
+
+/** 日誌的表情回應：存成 JSON 字串 {"❤️":["慧慧","淇淇"]}；同一個表情再按一次就收回 */
+function toggleReaction_(id, emoji, user) {
+  if (REACTIONS.indexOf(emoji) < 0) throw new Error('不支援這個表情');
+  const t = getTable_('日誌');
+  const r = findRow_(t, id);
+  const cell = t.sh.getRange(r, t.headers.indexOf('反應') + 1);
+  let map = {};
+  try { map = JSON.parse(cell.getValue() || '{}'); } catch (err) { map = {}; }
+  const people = map[emoji] || [];
+  const i = people.indexOf(user);
+  if (i >= 0) people.splice(i, 1); else people.push(user);
+  if (people.length) map[emoji] = people; else delete map[emoji];
+  cell.setValue(Object.keys(map).length ? JSON.stringify(map) : '');
   return rowObject_(t, r);
 }
 

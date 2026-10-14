@@ -304,3 +304,22 @@ details.card[open] summary { margin-bottom: 6px; }
 .line-badge { display: inline-block; font-size: 11px; font-weight: 700; color: #fff; background: var(--lc); border-radius: 6px; padding: 1px 6px; }
 .route { border-top: 1px solid var(--line); padding: 8px 0; }
 .route .t { font-weight: 700; font-size: 14px; }
+
+/* 日誌 */
+.jn { display: flex; flex-direction: column; gap: 6px; }
+.jn-top { display: flex; align-items: center; gap: 8px; }
+.jn-who { font-weight: 700; }
+.jn-edit { margin-left: auto; width: 32px; height: 32px; font-size: 14px; }
+.jn-day { font-size: 12px; color: var(--city); font-weight: 500; }
+.jn-sat { font-size: 15px; letter-spacing: 1px; }
+.jn-body { white-space: pre-wrap; line-height: 1.6; }
+.jn-meta { font-size: 12px; color: var(--sub); }
+.jn-react { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.rx { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 4px 10px; min-height: 32px; font-size: 14px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.rx.on { border-color: var(--city); background: color-mix(in srgb, var(--city) 12%, transparent); }
+.rx-who { font-size: 12px; }
+.jn-cmts { border-top: 1px dashed var(--line); padding-top: 6px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.cmt { position: relative; padding-right: 26px; line-height: 1.5; }
+.cmt-x { position: absolute; right: 0; top: 0; border: 0; background: none; color: var(--sub); font-size: 13px; padding: 2px 6px; cursor: pointer; }
+.sat-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.sat-h { border: 0; background: none; font-size: 26px; padding: 2px; cursor: pointer; line-height: 1; }

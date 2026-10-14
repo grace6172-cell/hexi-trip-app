@@ -3,7 +3,7 @@
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxy2p0Fgyqzs5S4ReD2-IfsrA9HxptMY5YoFt5P9kbKifGf7k2R5FTSLOEteszik4gDrA/exec';
 // 每次發布都要跟 version.json 一起改；手機上的舊版看到不一樣就會自動換新版
-const APP_VERSION = '2026.10.15-3';
+const APP_VERSION = '2026.10.15-4';
 const USERS = ['淇淇', '婷婷', '宜宜', '慧慧'];
 const AVATAR = { 淇淇: '🐟', 婷婷: '🐨', 宜宜: '🐶', 慧慧: '🐯' };
 // 舊代號（2026-10-12 改名前）→ 新名字；手機上還記著舊名字的會自動換
@@ -243,6 +243,9 @@ async function addRow(sheet, fields, okMsg) {
   if (sheet === '待辦') Object.assign(temp, { 完成: false, 已刪除: false, 建立者: S.auth.user });
   if (sheet === '行程') Object.assign(temp, { 已刪除: false, 新增者: S.auth.user, 來源: 'app 新增' });
   if (sheet === '購物') Object.assign(temp, { 已買: false, 已刪除: false, '按 ❤️ 的人': '', 來源: 'app 新增' });
+  if (sheet === '日誌') Object.assign(temp, { 作者: S.auth.user, 時間: nowStamp(), 已刪除: false, 反應: '' });
+  if (sheet === '日誌留言') Object.assign(temp, { 作者: S.auth.user, 時間: nowStamp(), 已刪除: false });
+  if (!S.data[sheet]) S.data[sheet] = [];
   S.data[sheet].push(temp);
   render();
   if (okMsg) toast(okMsg);
@@ -370,6 +373,7 @@ function render() {
     ${S.tab === 'prep' && S.prepTab === 'todo' ? '<button class="fab" data-act="add-todo">＋ 新增待辦</button>' : ''}
     ${S.tab === 'prep' && S.prepTab === 'shop' ? '<button class="fab" data-act="add-shop">＋ 新增想買的</button>' : ''}
     ${S.tab === 'trip' ? '<button class="fab" data-act="add-item">＋ 新增行程</button>' : ''}
+    ${S.tab === 'journal' ? '<button class="fab" data-act="add-journal">＋ 寫日誌</button>' : ''}
     <nav class="tabbar">
       ${[['trip', '📅', '行程'], ['places', '📍', '地點'], ['book', '🎫', '預約'], ['prep', '🧳', '準備'], ['journal', '📝', '日誌']]
         .map(([k, ic, l]) => `<button class="tab${S.tab === k ? ' on' : ''}" data-act="tab" data-v="${k}"><span class="ic">${ic}</span>${l}</button>`).join('')}
@@ -997,8 +1001,126 @@ function phraseSheet(i) {
     <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">關閉</button></div></div>`);
 }
 
+/* ----- 日誌 ----- */
+const J_TYPES = ['📝 一句話總結今天', '😤 想投訴', '🙏 想感謝', '💬 其他想說的話'];
+const J_SHORT = { '📝 一句話總結今天': '📝 總結', '😤 想投訴': '😤 投訴', '🙏 想感謝': '🙏 感謝', '💬 其他想說的話': '💬 其他' };
+const REACTIONS = ['❤️', '😂', '👍', '😮', '😢'];
+const nowStamp = () => { const n = madridNow(); return `${n.date} ${String(Math.floor(n.min / 60)).padStart(2, '0')}:${String(n.min % 60).padStart(2, '0')}`; };
+const stampLabel = (s) => { const [d, t] = String(s || '').split(' '); return d ? `${md(d)}${t ? ' ' + t : ''}` : ''; };
+const hasSat = (r) => r['滿意度'] !== '' && r['滿意度'] !== null && r['滿意度'] !== undefined;
+const satHearts = (n) => '❤️'.repeat(n) + '🤍'.repeat(5 - n);
+function reactMap(r) { try { return JSON.parse(r['反應'] || '{}') || {}; } catch (err) { return {}; } }
+
+/** 10/25（日）・Day 4・巴塞隆納；旅程以外的日子標「出發前」「回家後」 */
+function tripDayLabel(date) {
+  if (!date) return '';
+  const days = rows('每日').map((r) => r['日期']).sort();
+  const i = days.indexOf(date);
+  const base = `${md(date)}（${WD_NAME[weekdayOf(date)]}）`;
+  if (i >= 0) return `${base}・Day ${i + 1}・${rows('每日').find((r) => r['日期'] === date)['城市'] || ''}`;
+  return base + (days.length && date < days[0] ? '・出發前' : '・回家後');
+}
+
 function journalView() {
-  return '<div class="soon"><div class="big">📝</div><p>日誌是第三批，旅途中開放。</p><p class="small">到時候想吐槽的、想說的都寫這裡。</p></div>';
+  const f = S.jFilter || 'all';
+  const all = rows('日誌').filter((r) => !truthy(r['已刪除']));
+  const list = all.filter((r) => f === 'all' || (f === 'mine' ? r['作者'] === S.auth.user : r['類型'] === f))
+    .sort((a, b) => String(b['時間']).localeCompare(String(a['時間'])) || String(b.ID).localeCompare(String(a.ID)));
+  const chips = [['all', '全部'], ...J_TYPES.map((t) => [t, J_SHORT[t]]), ['mine', '只看我的']];
+  return `
+    <div class="section-h"><h2>日誌 ${all.length} 則</h2><span class="muted small">想說什麼都寫這裡</span></div>
+    <div class="chips" data-sk="jf">${chips.map(([k, l]) => `<button class="chip${f === k ? ' on' : ''}" data-act="j-filter" data-v="${esc(k)}">${esc(l)}</button>`).join('')}</div>
+    <div class="list">${list.map((r) => journalCard(r)).join('') || '<div class="empty">還沒有人寫，來當第一個 ✍️</div>'}</div>`;
+}
+
+function journalCard(r) {
+  const mine = r['作者'] === S.auth.user;
+  const rm = reactMap(r);
+  const cmts = rows('日誌留言').filter((c) => c['日誌 ID'] === r.ID && !truthy(c['已刪除']))
+    .sort((a, b) => String(a['時間']).localeCompare(String(b['時間'])));
+  const sat = hasSat(r) ? Number(r['滿意度']) : null;
+  return `<article class="card jn">
+    <div class="jn-top">
+      <span class="jn-who">${esc(who(r['作者']))}</span><span class="pill mute">${esc(r['類型'])}</span>
+      ${mine ? `<button class="icon-btn jn-edit" data-act="edit-journal" data-v="${esc(r.ID)}" aria-label="編輯">✏️</button>` : ''}
+    </div>
+    <div class="jn-day">${esc(tripDayLabel(r['日期']))}</div>
+    ${sat !== null ? `<div class="jn-sat" aria-label="滿意度 ${sat} 顆">${satHearts(sat)}</div>` : ''}
+    <div class="jn-body">${esc(r['內容'])}</div>
+    <div class="jn-meta">${esc(stampLabel(r['時間']))}${r['修改時間'] ? '・已編輯' : ''}</div>
+    <div class="jn-react">
+      ${REACTIONS.map((e) => {
+        const people = rm[e] || [];
+        return `<button class="rx${people.includes(S.auth.user) ? ' on' : ''}" data-act="react" data-v="${esc(r.ID)}" data-e="${e}" aria-label="${e} ${people.length}">${e}${people.length ? `<span class="rx-who">${people.map((u) => AVATAR[u] || u).join('')}</span>` : ''}</button>`;
+      }).join('')}
+      <button class="rx" data-act="j-reply" data-v="${esc(r.ID)}">💬 回覆${cmts.length ? ` ${cmts.length}` : ''}</button>
+    </div>
+    ${cmts.length ? `<div class="jn-cmts">${cmts.map((c) => `<div class="cmt">
+      <b>${esc(who(c['作者']))}</b> ${esc(c['內容'])} <span class="muted small">${esc(stampLabel(c['時間']))}</span>
+      ${c['作者'] === S.auth.user ? `<button class="cmt-x" data-act="ask-remove" data-do="cmt-remove" data-name="${esc(String(c['內容']).slice(0, 20))}" data-v="${esc(c.ID)}" aria-label="刪除回覆">✕</button>` : ''}
+    </div>`).join('')}</div>` : ''}
+  </article>`;
+}
+
+/** 寫日誌／編輯日誌（只有作者本人會看到編輯） */
+function journalSheet(id) {
+  const r = id ? rows('日誌').find((x) => x.ID === id) : {};
+  if (!r) return;
+  const type = r['類型'] || J_TYPES[0];
+  const days = rows('每日').map((d) => d['日期']).sort();
+  const today = madridNow().date;
+  const date = r['日期'] || today;
+  const opts = days.includes(date) ? days : [date, ...days];
+  const sat = hasSat(r) ? String(Number(r['滿意度'])) : '';
+  openSheet(`
+    <h3>${id ? '編輯日誌' : '寫日誌 ✍️'}</h3>
+    <div class="field"><label>類型</label>
+      <div class="who-pick">${J_TYPES.map((t) => `<button type="button" class="chip${t === type ? ' on' : ''}" data-act="pick" data-target="f-jtype" data-v="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+      <input type="hidden" id="f-jtype" value="${esc(type)}"></div>
+    <div class="field"><label for="f-jdate">哪一天</label><select id="f-jdate">${opts.map((d) => `<option value="${d}"${d === date ? ' selected' : ''}>${esc(tripDayLabel(d))}</option>`).join('')}</select></div>
+    <div class="field"><label>滿意度 <span class="muted small" id="sat-t">${sat === '' ? '不評' : sat + ' 顆'}</span></label>
+      <div class="sat-pick">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="sat-h" data-act="sat" data-v="${n}">${sat !== '' && n <= Number(sat) ? '❤️' : '🤍'}</button>`).join('')}
+        <button type="button" class="chip" data-act="sat" data-v="0">0 顆</button><button type="button" class="chip" data-act="sat" data-v="">不評</button></div>
+      <input type="hidden" id="f-sat" value="${sat}"></div>
+    <div class="field"><label for="f-jtext">想說的</label><textarea id="f-jtext" rows="4" placeholder="例：今天走了 2 萬步，腳已經不是我的了">${esc(r['內容'] || '')}</textarea></div>
+    <div class="acts">
+      ${id ? `<button class="btn danger" data-act="ask-remove" data-do="journal-remove" data-name="${esc(String(r['內容']).slice(0, 20))}" data-v="${esc(id)}">移除</button>` : ''}
+      <div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="journal-save" data-v="${esc(id || '')}">${id ? '儲存' : '送出'}</button></div>
+    </div>`, () => { const t = $('#f-jtext'); if (t && !id) t.focus(); });
+}
+
+function replySheet(id) {
+  const r = rows('日誌').find((x) => x.ID === id);
+  if (!r) return;
+  openSheet(`
+    <h3>回覆 ${esc(who(r['作者']))}</h3>
+    <div class="muted small" style="margin-bottom:8px">${esc(String(r['內容']).slice(0, 60))}</div>
+    <div class="field"><textarea id="f-cmt" rows="3" placeholder="說點什麼…"></textarea></div>
+    <div class="acts"><div class="right"><button class="btn" data-act="sheet-close">取消</button><button class="btn primary" data-act="cmt-send" data-v="${esc(id)}">送出</button></div></div>`,
+  () => { const t = $('#f-cmt'); if (t) t.focus(); });
+}
+
+async function toggleReaction(id, emoji) {
+  const row = rows('日誌').find((r) => r.ID === id);
+  if (!row) return;
+  const before = row['反應'];
+  const map = reactMap(row);
+  const people = map[emoji] || [];
+  const i = people.indexOf(S.auth.user);
+  if (i >= 0) people.splice(i, 1); else people.push(S.auth.user);
+  if (people.length) map[emoji] = people; else delete map[emoji];
+  row['反應'] = Object.keys(map).length ? JSON.stringify(map) : '';
+  render();
+  try {
+    const j = await post({ action: 'react', id, emoji });
+    if (j.row) Object.assign(row, j.row);
+    rememberWrite({ sheet: '日誌', id, fields: { 反應: row['反應'] } });
+  } catch (err) {
+    S.lastError = '回應：' + err.message;
+    row['反應'] = before;
+    render();
+    toast('沒存到：' + err.message);
+  }
 }
 
 /* ---------------- 底部面板 ---------------- */
@@ -1399,6 +1521,36 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'phrase': phraseSheet(Number(v)); break;
+    case 'j-filter': S.jFilter = v; render(); break;
+    case 'add-journal': journalSheet(null); break;
+    case 'edit-journal': journalSheet(v); break;
+    case 'sat': {
+      $('#f-sat').value = v;
+      const n = v === '' ? 0 : Number(v);
+      document.querySelectorAll('.sat-h').forEach((h) => { h.textContent = Number(h.dataset.v) <= n ? '❤️' : '🤍'; });
+      $('#sat-t').textContent = v === '' ? '不評' : `${n} 顆`;
+      break;
+    }
+    case 'journal-save': {
+      const fields = { 類型: $('#f-jtype').value, 日期: $('#f-jdate').value, 滿意度: $('#f-sat').value, 內容: $('#f-jtext').value.trim() };
+      if (!fields['內容']) { $('#f-jtext').focus(); break; }
+      closeSheet();
+      // 修改時間由 Apps Script 寫；這裡只先在畫面標「已編輯」
+      if (v) { const jr = rows('日誌').find((x) => x.ID === v); if (jr) jr['修改時間'] = nowStamp(); updateRow('日誌', v, fields, '存好了'); }
+      else addRow('日誌', fields, '寫好了 ✍️');
+      break;
+    }
+    case 'journal-remove': closeSheet(); updateRow('日誌', v, { 已刪除: true }, '已移除', { 已刪除: false }); break;
+    case 'react': toggleReaction(v, el.dataset.e); break;
+    case 'j-reply': replySheet(v); break;
+    case 'cmt-send': {
+      const text = $('#f-cmt').value.trim();
+      if (!text) { $('#f-cmt').focus(); break; }
+      closeSheet();
+      addRow('日誌留言', { '日誌 ID': v, 內容: text }, '回覆好了');
+      break;
+    }
+    case 'cmt-remove': closeSheet(); updateRow('日誌留言', v, { 已刪除: true }, '已刪除回覆', { 已刪除: false }); break;
     case 'undo': if (toast.undo) { const u = toast.undo; toast.undo = null; $('#toast-root').innerHTML = ''; u(); } break;
     default: break;
   }
